@@ -87,6 +87,7 @@ import { UploadSceneModal } from './components/UploadSceneModal';
 import { useStoryPersistence } from './lib/storyStore';
 import { useTrimmedPlayback } from './lib/trimPlayback';
 import { grabFrame } from './lib/frameGrab';
+import { analyzeCut, type CutAnalysis } from './api/cutAnalysis';
 import SceneEditBar from './components/SceneEditBar';
 import {
   BellyEmblemModal,
@@ -621,6 +622,8 @@ export default function App() {
   const [nextScenePrompt, setNextScenePrompt] = useState<string>(CONTINUATION_PRESETS[0].prompt);
   const [selectedContinuationPreset, setSelectedContinuationPreset] = useState<string>(CONTINUATION_PRESETS[0].id);
   const [isExtending, setIsExtending] = useState<boolean>(false);
+  const [isAnalyzingCut, setIsAnalyzingCut] = useState<boolean>(false);
+  const [cutAnalysis, setCutAnalysis] = useState<CutAnalysis | null>(null);
   const [playAllContinuous, setPlayAllContinuous] = useState<boolean>(true);
 
   // Scene Correction & Re-take state
@@ -1909,6 +1912,35 @@ export default function App() {
     }
   };
 
+  // Look at the frames around where the new scene goes and suggest its prompt (cheap text call).
+  const handleAnalyzeCut = async (parentVideo: GeneratedVideo) => {
+    setIsAnalyzingCut(true);
+    setErrorMessage(null);
+    setCutAnalysis(null);
+    try {
+      const storyScenes = videoHistoryRef.current
+        .filter((v) => v.storyId === parentVideo.storyId)
+        .sort((a, b) => (a.sceneNumber || 1) - (b.sceneNumber || 1));
+      const idx = storyScenes.findIndex((s) => s.id === parentVideo.id);
+      const following = idx !== -1 ? storyScenes[idx + 1] : undefined;
+      const startFrame = await grabFrame(parentVideo.videoUrl, parentVideo.trimEnd ?? Number.POSITIVE_INFINITY, 768);
+      const endFrame = following ? await grabFrame(following.videoUrl, following.trimStart ?? 0, 768) : null;
+      const result = await analyzeCut({
+        startFrame,
+        endFrame,
+        previousPrompt: parentVideo.prompt,
+        nextPrompt: following?.prompt,
+        wish: nextScenePrompt.trim() || undefined,
+      });
+      setCutAnalysis(result);
+      setNextScenePrompt(result.suggestedPrompt);
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'The frames could not be analysed.');
+    } finally {
+      setIsAnalyzingCut(false);
+    }
+  };
+
   // Open correction modal for a specific scene
   const openCorrectionModal = (scene: GeneratedVideo) => {
     setSceneToCorrect(scene);
@@ -2251,6 +2283,8 @@ export default function App() {
     setVideoHistory(next);
     return renumbered;
   };
+
+  useEffect(() => setCutAnalysis(null), [currentVideo?.id]);
 
   const handleTrimScene = (scene: GeneratedVideo, trimStart: number | undefined, trimEnd: number | undefined) => {
     const updated = { ...scene, trimStart, trimEnd };
@@ -4483,6 +4517,24 @@ export default function App() {
                             <span>Ask AI Director to Suggest Scene</span>
                           </button>
                         </div>
+                        <button
+                          type="button"
+                          onClick={() => handleAnalyzeCut(currentVideo)}
+                          disabled={isAnalyzingCut || isExtending}
+                          title="Look at the frame where the new scene starts (and the first frame of the scene after it) and write a prompt that joins them. Uses your current text as the wish."
+                          className="mb-1.5 text-[11px] text-emerald-300 hover:text-emerald-200 font-semibold flex items-center gap-1 cursor-pointer disabled:opacity-50 disabled:cursor-wait"
+                        >
+                          {isAnalyzingCut ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Eye className="w-3 h-3" />}
+                          <span>{isAnalyzingCut ? 'Looking at the frames…' : 'Suggest from the frames'}</span>
+                        </button>
+                        {cutAnalysis && (
+                          <div className="mb-1.5 rounded-md border border-slate-800 bg-slate-900/60 p-2 text-[10px] leading-snug text-slate-400">
+                            <p><span className="font-semibold text-slate-300">Starts on:</span> {cutAnalysis.startState}</p>
+                            {cutAnalysis.endState && (
+                              <p className="mt-0.5"><span className="font-semibold text-slate-300">Must end on:</span> {cutAnalysis.endState}</p>
+                            )}
+                          </div>
+                        )}
                         <textarea
                           value={nextScenePrompt}
                           onChange={(e) => setNextScenePrompt(e.target.value)}
