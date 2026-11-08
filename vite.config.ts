@@ -19,6 +19,10 @@ const BUILD_BRANCH = process.env.CF_PAGES_BRANCH || process.env.WORKERS_CI_BRANC
 export default defineConfig(() => {
   return {
     plugins: [react(), tailwindcss()],
+    // ffmpeg.wasm spawns its own worker; pre-bundling breaks that (same setting as VEmotion).
+    optimizeDeps: {
+      exclude: ['@ffmpeg/ffmpeg', '@ffmpeg/util'],
+    },
     define: {
       __BUILD_SHA__: JSON.stringify(BUILD_SHA),
       __BUILD_BRANCH__: JSON.stringify(BUILD_BRANCH),

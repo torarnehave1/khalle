@@ -88,6 +88,7 @@ import { useStoryPersistence } from './lib/storyStore';
 import { useTrimmedPlayback } from './lib/trimPlayback';
 import { grabFrame } from './lib/frameGrab';
 import { analyzeCut, type CutAnalysis } from './api/cutAnalysis';
+import { exportStory } from './lib/storyExport';
 import SceneEditBar from './components/SceneEditBar';
 import {
   BellyEmblemModal,
@@ -623,6 +624,7 @@ export default function App() {
   const [selectedContinuationPreset, setSelectedContinuationPreset] = useState<string>(CONTINUATION_PRESETS[0].id);
   const [isExtending, setIsExtending] = useState<boolean>(false);
   const [isAnalyzingCut, setIsAnalyzingCut] = useState<boolean>(false);
+  const [storyExport, setStoryExport] = useState<{ step: string; fraction: number } | null>(null);
   const [cutAnalysis, setCutAnalysis] = useState<CutAnalysis | null>(null);
   const [playAllContinuous, setPlayAllContinuous] = useState<boolean>(true);
 
@@ -1938,6 +1940,27 @@ export default function App() {
       setErrorMessage(err?.message || 'The frames could not be analysed.');
     } finally {
       setIsAnalyzingCut(false);
+    }
+  };
+
+  // One MP4 of the whole story: each scene cut to its trim, joined in order (ffmpeg.wasm).
+  const handleExportStory = async () => {
+    if (!currentStoryScenes.length || storyExport) return;
+    setErrorMessage(null);
+    setStoryExport({ step: 'Starting…', fraction: 0 });
+    try {
+      const blob = await exportStory(
+        currentStoryScenes.map((s) => ({ videoUrl: s.videoUrl, trimStart: s.trimStart, trimEnd: s.trimEnd })),
+        currentStoryScenes[0].aspectRatio,
+        (p) => setStoryExport(p)
+      );
+      const url = URL.createObjectURL(blob);
+      downloadVideo(url, `rabbithop-story-${currentStoryScenes.length}-scenes.mp4`);
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (err: any) {
+      setErrorMessage(`The story could not be exported: ${err?.message || err}`);
+    } finally {
+      setStoryExport(null);
     }
   };
 
@@ -4128,6 +4151,22 @@ export default function App() {
                   >
                     <ListVideo className="w-3.5 h-3.5" />
                     <span>{playAllContinuous ? 'Continuous Movie: ON' : 'Single Scene Loop'}</span>
+                  </button>
+
+                  {/* Export the whole story as one MP4 (edit list applied) */}
+                  <button
+                    type="button"
+                    onClick={handleExportStory}
+                    disabled={!!storyExport}
+                    className="text-[11px] px-2.5 py-1 rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer bg-slate-950 border-slate-700 text-slate-200 hover:border-emerald-500 disabled:cursor-wait disabled:opacity-80"
+                    title="Download all scenes of this story as one MP4, each cut to its start and end"
+                  >
+                    {storyExport ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                    <span aria-live="polite">
+                      {storyExport
+                        ? `${storyExport.step} ${Math.round(storyExport.fraction * 100)}%`
+                        : `Export story (${currentStoryScenes.length} ${currentStoryScenes.length === 1 ? 'scene' : 'scenes'})`}
+                    </span>
                   </button>
 
                   {/* Button to open Script to Storyboard modal */}
