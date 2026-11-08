@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "khalle", "runtimeExecutable": "npx", "runtimeArgs": ["tsx", "server.ts"], "port": 3000 }
+  ]
+}

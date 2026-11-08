@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import crypto from 'crypto';
 import { GoogleGenAI, Type } from '@google/genai';
 
 dotenv.config();
@@ -43,6 +44,61 @@ app.use(express.urlencoded({ limit: '60mb', extended: true }));
 // Serve static assets from public
 app.use('/assets', express.static(path.resolve(__dirname, 'public/assets')));
 
+// Vegvisr login check for every /api route except /api/health.
+// The browser sends the signed-in user's email (X-User-Email) and emailVerificationToken
+// (X-API-Token) — see src/lib/auth.ts. The token must match the one dashboard.vegvisr.org holds
+// for that email. Without this, anyone could call /api/animate directly and spend the Gemini key.
+// (dashboard /userdata-from-token would be the cleaner check, but the deployed dash-worker answers
+// 404 for it as of 2026-11-08; /userdata?email= is the route Agent-Builder's login already uses.)
+const DASHBOARD_BASE = 'https://dashboard.vegvisr.org';
+const AUTH_CACHE_MS = 5 * 60 * 1000;
+const authCache = new Map<string, { email: string; expires: number }>();
+
+function tokensMatch(a: string, b: string): boolean {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  return ab.length === bb.length && crypto.timingSafeEqual(ab, bb);
+}
+
+app.use('/api', async (req, res, next) => {
+  if (req.path === '/health') return next();
+
+  const token = req.get('X-API-Token') || '';
+  const email = (req.get('X-User-Email') || '').trim().toLowerCase();
+  if (!token || !email) {
+    return res.status(401).json({ error: 'Sign in to use RabbitHop.' });
+  }
+
+  const cacheKey = `${email}\n${token}`;
+  const cached = authCache.get(cacheKey);
+  if (cached && cached.expires > Date.now()) {
+    res.locals.user = cached;
+    return next();
+  }
+
+  try {
+    const check = await fetch(`${DASHBOARD_BASE}/userdata?email=${encodeURIComponent(email)}`);
+    if (check.status === 404) {
+      return res.status(401).json({ error: 'Your session has expired. Sign in again.' });
+    }
+    if (!check.ok) {
+      return res.status(503).json({ error: `Sign-in service unavailable (status ${check.status}). Try again shortly.` });
+    }
+    const data = (await check.json()) as { emailVerificationToken?: string | null };
+    if (!data?.emailVerificationToken || !tokensMatch(token, data.emailVerificationToken)) {
+      authCache.delete(cacheKey);
+      return res.status(401).json({ error: 'Your session has expired. Sign in again.' });
+    }
+    const user = { email, expires: Date.now() + AUTH_CACHE_MS };
+    authCache.set(cacheKey, user);
+    res.locals.user = user;
+    return next();
+  } catch (err) {
+    console.error('Auth check failed:', err);
+    return res.status(503).json({ error: 'Sign-in service unreachable. Try again shortly.' });
+  }
+});
+
 // Helper to get or create Gemini client
 function getGeminiClient(): GoogleGenAI {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -58,6 +114,11 @@ function getGeminiClient(): GoogleGenAI {
     },
   });
 }
+
+// Who is signed in — AuthGate calls this on startup to confirm a stored login is still valid.
+app.get('/api/session', (_req, res) => {
+  res.json({ email: res.locals.user?.email ?? null });
+});
 
 // Health check endpoint
 app.get('/api/health', (_req, res) => {
