@@ -10,7 +10,15 @@
  */
 import { getApiToken } from '../lib/auth';
 
-export const GEMINI_WORKER_BASE = 'https://gemini.vegvisr.org';
+// Dev builds only: localStorage 'khalle:geminiBase' points the app at a local worker (wrangler dev).
+const devBase = (() => {
+  try {
+    return import.meta.env.DEV ? localStorage.getItem('khalle:geminiBase') || '' : '';
+  } catch {
+    return '';
+  }
+})();
+export const GEMINI_WORKER_BASE = devBase || 'https://gemini.vegvisr.org';
 
 /** Same string values as the SDK's `Type` enum; the REST API accepts them as-is. */
 export const Type = {

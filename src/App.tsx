@@ -664,14 +664,18 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
 
-  // Scenes survive a reload: saved in this browser (IndexedDB), restored on startup.
+  // Scenes survive a reload and follow the user to other devices: saved in this browser
+  // (IndexedDB) and in their account on the server, restored on startup.
   useStoryPersistence<GeneratedVideo>(
     videoHistory,
     (saved) => {
       setVideoHistory(saved);
-      setCurrentVideo((cur) => cur || saved[0] || null);
+      // Keep the open scene if it still exists (its URL may be new), else open the newest.
+      setCurrentVideo((cur) => (cur ? saved.find((s) => s.id === cur.id) : undefined) || saved[0] || null);
     },
-    (message) => setErrorMessage(message)
+    (message) => setErrorMessage(message),
+    // Scenes made on another device while this one also changed: add them, keep everything here.
+    (extra) => setVideoHistory((prev) => [...prev, ...extra.filter((e) => !prev.some((p) => p.id === e.id))])
   );
 
   // Production Cast, Props, Equipment & Wardrobe Multi-Select Studio
