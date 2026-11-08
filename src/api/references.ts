@@ -555,6 +555,11 @@ export async function resolveReferenceImages(body: any): Promise<ResolvedImage[]
 
   // Helper to determine intent and role for an asset based on prompt context
   const getAssetRoleAndDesc = (ref: any): { role: string; desc: string; isFriend: boolean; isPicture: boolean } => {
+    // Continuity frames grabbed from neighbouring scenes (added with the scene edit list): the
+    // client states the role, e.g. "the video must start on this frame".
+    if (ref.category === 'continuity_frame') {
+      return { role: ref.role || ref.label || 'Continuity frame', desc: ref.description || '', isFriend: false, isPicture: false };
+    }
     const label = (ref.label || '').toLowerCase();
     const cleanLabel = label.replace(/\s*\([^)]*\)/g, '').trim().toLowerCase();
     const filename = (ref.filename || '').toLowerCase().replace(/\.[^.]+$/, '');

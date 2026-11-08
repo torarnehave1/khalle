@@ -86,6 +86,7 @@ import {
 import { UploadSceneModal } from './components/UploadSceneModal';
 import { useStoryPersistence } from './lib/storyStore';
 import { useTrimmedPlayback } from './lib/trimPlayback';
+import { grabFrame } from './lib/frameGrab';
 import SceneEditBar from './components/SceneEditBar';
 import {
   BellyEmblemModal,
@@ -607,6 +608,9 @@ export default function App() {
   // Result & Player state
   const [currentVideo, setCurrentVideo] = useState<GeneratedVideo | null>(null);
   const [videoHistory, setVideoHistory] = useState<GeneratedVideo[]>([]);
+  // Latest history for handlers that finish after an await (a generation takes minutes).
+  const videoHistoryRef = useRef<GeneratedVideo[]>([]);
+  videoHistoryRef.current = videoHistory;
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
   const [isLooping, setIsLooping] = useState<boolean>(true);
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
@@ -1729,9 +1733,64 @@ export default function App() {
     const continuationPrompt = (overridePrompt || nextScenePrompt).trim();
 
     try {
-      // Gemini Omni Flash continuation via Interactions API
+      // Where does the new scene go? Right after the parent; if a scene follows, the new one has
+      // to lead into it.
+      const storyScenes = videoHistoryRef.current
+        .filter((v) => v.storyId === parentVideo.storyId)
+        .sort((a, b) => (a.sceneNumber || 1) - (b.sceneNumber || 1));
+      const parentIdx = storyScenes.findIndex((s) => s.id === parentVideo.id);
+      const followingScene = parentIdx !== -1 ? storyScenes[parentIdx + 1] : undefined;
+      // The stored Gemini interaction ends where the clip ends. Continue through it only when the
+      // parent plays to its real end; otherwise start a fresh generation from the cut frame.
+      const continueInteraction = !!parentVideo.interactionId && parentVideo.trimEnd === undefined;
+
+      setProgressPercent(8);
+      setProgressStep('Grabbing the frames on each side of the new scene...');
+      const startFrame = continueInteraction
+        ? null
+        : await grabFrame(parentVideo.videoUrl, parentVideo.trimEnd ?? Number.POSITIVE_INFINITY);
+      const endFrame = followingScene ? await grabFrame(followingScene.videoUrl, followingScene.trimStart ?? 0) : null;
+
+      const continuityRefs: any[] = [];
+      const continuityLines: string[] = [];
+      if (startFrame) {
+        continuityRefs.push({
+          label: 'scene_start_frame',
+          filename: 'scene_start_frame.jpg',
+          imageBase64: startFrame,
+          mimeType: 'image/jpeg',
+          category: 'continuity_frame',
+          role: 'CONTINUITY START FRAME: the first frame of this video',
+          description: 'The video must begin exactly on this frame: same pose, position, camera framing and lighting.',
+        });
+        continuityLines.push(
+          'The video must begin exactly on scene_start_frame (same pose, position, camera framing and lighting) and continue smoothly from it.'
+        );
+      }
+      if (endFrame) {
+        continuityRefs.push({
+          label: 'scene_end_frame',
+          filename: 'scene_end_frame.jpg',
+          imageBase64: endFrame,
+          mimeType: 'image/jpeg',
+          category: 'continuity_frame',
+          role: 'CONTINUITY END FRAME: where this video must arrive',
+          description: 'The video must end on this pose, position and camera framing, so the next scene follows without a jump.',
+        });
+        continuityLines.push(
+          'The video must end on the pose, position and camera framing shown in scene_end_frame, so the next scene follows without a jump.'
+        );
+      }
+      const generationPrompt = continuityLines.length
+        ? `${continuityLines.join(' ')}\n\n${continuationPrompt}`
+        : continuationPrompt;
+
       setProgressPercent(15);
-      setProgressStep(`Analyzing previous video scene with gemini-omni-1.2-flash...`);
+      setProgressStep(
+        continueInteraction
+          ? `Analyzing previous video scene with gemini-omni-1.2-flash...`
+          : `Generating a new scene from the cut frame with gemini-omni-1.2-flash...`
+      );
 
       const progressInterval = setInterval(() => {
         setProgressPercent((prev) => {
@@ -1749,12 +1808,14 @@ export default function App() {
         });
       }, 1800);
 
-      const response = await fetch('/api/extend', {
+      const response = await fetch(continueInteraction ? '/api/extend' : '/api/animate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          previousInteractionId: parentVideo.interactionId || parentVideo.id,
-          prompt: continuationPrompt,
+          ...(continueInteraction
+            ? { previousInteractionId: parentVideo.interactionId }
+            : { imageBase64: startFrame, imageMimeType: 'image/jpeg' }),
+          prompt: generationPrompt,
           aspectRatio: parentVideo.aspectRatio,
           duration: '5s',
           resolution,
@@ -1773,6 +1834,7 @@ export default function App() {
           disableMorph: !isMorphingEnabled || activeEmblem?.type !== 'morph',
           enableMorph: isMorphingEnabled && activeEmblem?.type === 'morph',
           referenceImages: [
+            ...continuityRefs,
             ...referenceAssets.filter((a) => a.enabled).map((ref) => ({
               label: ref.label,
               imagePath: ref.imagePath,
@@ -1823,12 +1885,15 @@ export default function App() {
         storyId: parentVideo.storyId || parentVideo.id,
         sceneNumber: nextSceneNumber,
         interactionId: data.interactionId,
-        previousInteractionId: parentVideo.interactionId || parentVideo.id,
+        previousInteractionId: continueInteraction ? parentVideo.interactionId : undefined,
       };
 
       setSessionCost((prev) => prev + (resolution === '1080p' ? 0.60 : 0.35));
-      setVideoHistory((prev) => [newScene, ...prev]);
-      setCurrentVideo(newScene);
+      // Insert right after the parent (not at the end) and renumber the story.
+      const parentNow = videoHistoryRef.current.find((v) => v.id === parentVideo.id);
+      const placed = parentNow ? replaceInStory(parentNow.id, [parentNow, newScene]) : undefined;
+      if (!placed) setVideoHistory((prev) => [newScene, ...prev]);
+      setCurrentVideo(placed?.find((s) => s.id === newScene.id) || newScene);
       setShowExtensionDrawer(false);
     } catch (err: any) {
       console.error('Scene extension error:', err);
@@ -2169,17 +2234,21 @@ export default function App() {
   );
 
   const replaceInStory = (sceneId: string, replacement: GeneratedVideo[]) => {
-    if (!currentVideo) return;
-    const storyId = currentVideo.storyId;
-    const storyScenes = videoHistory
+    const history = videoHistoryRef.current;
+    const target = history.find((v) => v.id === sceneId);
+    if (!target) return;
+    const storyId = target.storyId;
+    const storyScenes = history
       .filter((v) => v.storyId === storyId)
       .sort((a, b) => (a.sceneNumber || 1) - (b.sceneNumber || 1));
     const idx = storyScenes.findIndex((s) => s.id === sceneId);
     if (idx === -1) return;
-    storyScenes.splice(idx, 1, ...replacement);
+    storyScenes.splice(idx, 1, ...replacement.map((r) => ({ ...r, storyId })));
     const renumbered = storyScenes.map((s, i) => ({ ...s, sceneNumber: i + 1 }));
-    const otherStories = videoHistory.filter((v) => v.storyId !== storyId);
-    setVideoHistory([...renumbered, ...otherStories]);
+    const otherStories = history.filter((v) => v.storyId !== storyId);
+    const next = [...renumbered, ...otherStories];
+    videoHistoryRef.current = next;
+    setVideoHistory(next);
     return renumbered;
   };
 
@@ -4258,6 +4327,23 @@ export default function App() {
 
                           {/* Quick Insert Video Before / After */}
                           <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setCurrentVideo(scene);
+                                setCompareMode('video');
+                                setShowExtensionDrawer(true);
+                              }}
+                              title={
+                                idx < currentStoryScenes.length - 1
+                                  ? 'Generate a new AI scene between this scene and the next'
+                                  : 'Generate a new AI scene after this one'
+                              }
+                              className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-950/60 hover:bg-emerald-900 text-emerald-300 border border-emerald-700/40 font-medium transition-colors cursor-pointer"
+                            >
+                              + AI
+                            </button>
                             <button
                               type="button"
                               onClick={(e) => {
