@@ -30,6 +30,11 @@ export function useTrimmedPlayback(
       if (start > 0 && Math.abs(v.currentTime - start) > 0.05) v.currentTime = start;
     };
     const check = () => {
+      // Paused = the user is scrubbing or stepping: they may look anywhere in the clip.
+      if (v.paused) {
+        fired = false;
+        return;
+      }
       // Native loop / restart jumps to 0: bring it back inside the segment.
       if (start > 0 && v.currentTime < start - 0.05) {
         v.currentTime = start;
@@ -55,14 +60,21 @@ export function useTrimmedPlayback(
       if (anyV.requestVideoFrameCallback) rvfcHandle = anyV.requestVideoFrameCallback(loopFrames);
     };
 
+    // Play pressed while the playhead sits outside the segment (after scrubbing): start the segment.
+    const onPlay = () => {
+      if (v.currentTime < start - 0.05 || (end !== undefined && v.currentTime >= end - 0.05)) v.currentTime = start;
+    };
+
     if (v.readyState >= 1) seekToStart();
     v.addEventListener('loadedmetadata', seekToStart);
+    v.addEventListener('play', onPlay);
     v.addEventListener('timeupdate', check);
     v.addEventListener('seeked', check);
     if (anyV.requestVideoFrameCallback) rvfcHandle = anyV.requestVideoFrameCallback(loopFrames);
 
     return () => {
       v.removeEventListener('loadedmetadata', seekToStart);
+      v.removeEventListener('play', onPlay);
       v.removeEventListener('timeupdate', check);
       v.removeEventListener('seeked', check);
       if (rvfcHandle !== null && anyV.cancelVideoFrameCallback) anyV.cancelVideoFrameCallback(rvfcHandle);

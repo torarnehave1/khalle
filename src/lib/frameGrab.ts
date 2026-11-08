@@ -40,3 +40,53 @@ export async function grabFrame(videoUrl: string, at: number, maxSide = 1280): P
   v.load();
   return dataUrl;
 }
+
+/**
+ * Small thumbnails along a clip for a timeline strip. One hidden video element, seeked in turn.
+ * Returns data URLs in the order of `times`; a frame that fails is an empty string.
+ */
+export async function grabThumbnails(videoUrl: string, times: number[], height = 72): Promise<string[]> {
+  const v = document.createElement('video');
+  v.muted = true;
+  v.playsInline = true;
+  v.preload = 'auto';
+  v.crossOrigin = 'anonymous';
+  v.src = videoUrl;
+  await new Promise<void>((resolve, reject) => {
+    v.onloadedmetadata = () => resolve();
+    v.onerror = () => reject(new Error('The clip could not be read for thumbnails.'));
+  });
+  // Wait for decoded data, or the first seek can complete before any frame is drawable (black thumb).
+  if (v.readyState < 2) {
+    await new Promise<void>((resolve) => {
+      v.onloadeddata = () => resolve();
+      setTimeout(resolve, 3000);
+    });
+  }
+  const scale = height / Math.max(1, v.videoHeight);
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(v.videoWidth * scale));
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  const out: string[] = [];
+  const last = Number.isFinite(v.duration) ? Math.max(0, v.duration - 0.04) : Infinity;
+  for (const t of times) {
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('seek timeout')), 5000);
+        v.onseeked = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+        v.currentTime = Math.min(t, last);
+      });
+      ctx?.drawImage(v, 0, 0, canvas.width, canvas.height);
+      out.push(canvas.toDataURL('image/jpeg', 0.7));
+    } catch {
+      out.push('');
+    }
+  }
+  v.removeAttribute('src');
+  v.load();
+  return out;
+}
