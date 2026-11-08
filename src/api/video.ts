@@ -5,6 +5,13 @@
  */
 import { generateSafePromptRephrase } from './assistant';
 import { base64ByteLength } from './base64';
+
+/** "7s" / 7 → "7s", clamped to 3..max whole seconds. Unreadable → fallback. */
+function pickDuration(value: unknown, max: number, fallback: string): string {
+  const n = typeof value === 'number' ? value : parseInt(String(value ?? ''), 10);
+  if (!Number.isFinite(n)) return fallback;
+  return `${Math.min(max, Math.max(3, Math.round(n)))}s`;
+}
 import { getGeminiClient } from './gemini';
 import type { RouteHandler } from './http';
 import { quotaState, recentGenerationLogs, recordGenerationLog, type GenerationLogRecord } from './logs';
@@ -39,12 +46,8 @@ export async function executeAnimateCore(body: any) {
   const validAspectRatios = ['16:9', '9:16'];
   const chosenAspectRatio = validAspectRatios.includes(aspectRatio) ? aspectRatio : '9:16';
 
-  const validDurations = ['5s', '10s', '15s'];
-  const chosenDuration = validDurations.includes(duration)
-    ? duration
-    : (duration === '20s' || duration === '30s')
-    ? '10s'
-    : '5s';
+  // gemini-omni-1.2-flash: a new video is any whole second from 3 to 15 ("15s"); over 15 is an error.
+  const chosenDuration = pickDuration(duration, 15, '5s');
 
   const validResolutions = ['360p', '720p', '1080p'];
   const chosenResolution = validResolutions.includes(resolution) ? resolution : '720p';
@@ -383,8 +386,8 @@ export async function executeExtendCore(body: any) {
   const validAspectRatios = ['16:9', '9:16'];
   const chosenAspectRatio = validAspectRatios.includes(aspectRatio) ? aspectRatio : '9:16';
 
-  const validDurations = ['5s', '10s', '15s'];
-  const chosenDuration = validDurations.includes(duration) ? duration : '10s';
+  // gemini-omni-1.2-flash: an extension is 3 to 10 seconds (30 s total for the extended video).
+  const chosenDuration = pickDuration(duration, 10, '10s');
 
   const validResolutions = ['360p', '720p', '1080p'];
   const chosenResolution = validResolutions.includes(resolution) ? resolution : '720p';

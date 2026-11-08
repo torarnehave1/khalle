@@ -633,6 +633,8 @@ export default function App() {
   const [showCorrectionModal, setShowCorrectionModal] = useState<boolean>(false);
   const [sceneToCorrect, setSceneToCorrect] = useState<GeneratedVideo | null>(null);
   const [correctionPrompt, setCorrectionPrompt] = useState<string>('');
+  // Length of a new scene added with + AI / Extend: 5–15 s (10 s max when continuing a clip).
+  const [newSceneSeconds, setNewSceneSeconds] = useState<number>(5);
   const [correctionFeedback, setCorrectionFeedback] = useState<string>('');
   const [correctionSeason, setCorrectionSeason] = useState<string>('spring');
   const [correctionWeather, setCorrectionWeather] = useState<string>('sunny');
@@ -1208,7 +1210,12 @@ export default function App() {
   }, [currentVideo, videoHistory]);
 
   const totalStorySeconds = useMemo(() => {
-    return currentStoryScenes.length * 5;
+    // Each scene's own length (its duration label, e.g. "12s"), minus any trim.
+    return currentStoryScenes.reduce((sum, scene) => {
+      const full = parseInt(scene.duration || '', 10) || 5;
+      const end = scene.trimEnd ?? full;
+      return sum + Math.max(0, end - (scene.trimStart ?? 0));
+    }, 0);
   }, [currentStoryScenes]);
 
   // Real-time cost calculation for Gemini Omni Flash based on duration and resolution
@@ -1749,6 +1756,7 @@ export default function App() {
       // The stored Gemini interaction ends where the clip ends. Continue through it only when the
       // parent plays to its real end; otherwise start a fresh generation from the cut frame.
       const continueInteraction = !!parentVideo.interactionId && parentVideo.trimEnd === undefined;
+      const sceneSeconds = Math.min(continueInteraction ? 10 : 15, Math.max(3, Math.round(newSceneSeconds)));
 
       setProgressPercent(8);
       setProgressStep('Grabbing the frames on each side of the new scene...');
@@ -1823,7 +1831,7 @@ export default function App() {
             : { imageBase64: startFrame, imageMimeType: 'image/jpeg' }),
           prompt: generationPrompt,
           aspectRatio: parentVideo.aspectRatio,
-          duration: '5s',
+          duration: `${sceneSeconds}s`,
           resolution,
           season: parentVideo.season || selectedSeason,
           weather: parentVideo.weather || selectedWeather,
@@ -1881,7 +1889,7 @@ export default function App() {
         videoUrl: data.videoUrl,
         prompt: continuationPrompt,
         aspectRatio: parentVideo.aspectRatio,
-        duration: '5s',
+        duration: `${sceneSeconds}s`,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         sourceImage: parentVideo.sourceImage,
         season: parentVideo.season,
@@ -4130,7 +4138,7 @@ export default function App() {
                     Storyboard Movie Sequence
                   </span>
                   <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-950/80 text-emerald-300 border border-emerald-500/30 font-medium">
-                    {currentStoryScenes.length} {currentStoryScenes.length === 1 ? 'Scene' : 'Scenes'} • {totalStorySeconds}s Total
+                    {currentStoryScenes.length} {currentStoryScenes.length === 1 ? 'Scene' : 'Scenes'} • {Math.round(totalStorySeconds)}s Total
                   </span>
                 </div>
 
@@ -4592,6 +4600,40 @@ export default function App() {
                           previousPrompt={currentVideo?.prompt}
                         />
                       </div>
+
+                      {/* New scene length */}
+                      {(() => {
+                        const willContinue = !!currentVideo.interactionId && currentVideo.trimEnd === undefined;
+                        const max = willContinue ? 10 : 15;
+                        const shown = Math.min(max, newSceneSeconds);
+                        return (
+                          <div className="flex flex-col gap-1.5 pt-2 border-t border-slate-800/80">
+                            <label htmlFor="new-scene-length" className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                              <span>Scene length</span>
+                              <span className="font-mono text-sm normal-case tracking-normal text-emerald-300">{shown} s</span>
+                            </label>
+                            <input
+                              id="new-scene-length"
+                              type="range"
+                              min={5}
+                              max={max}
+                              step={1}
+                              value={shown}
+                              onChange={(e) => setNewSceneSeconds(Number(e.target.value))}
+                              className="w-full accent-emerald-500 cursor-pointer"
+                            />
+                            <div className="flex justify-between text-[10px] text-slate-500 font-mono">
+                              <span>5 s</span>
+                              <span>{max} s</span>
+                            </div>
+                            {willContinue && (
+                              <p className="text-[11px] text-slate-500">
+                                This scene continues the previous clip, and Gemini allows at most 10 s for a continuation. For up to 15 s, trim or split the scene first; then it is generated from the cut frame.
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })()}
 
                       {/* Cost & Action Bar */}
                       <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800/80">
