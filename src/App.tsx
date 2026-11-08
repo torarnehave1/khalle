@@ -84,6 +84,7 @@ import {
   ScriptStoryboardPlan,
 } from './components/ScriptToStoryModal';
 import { UploadSceneModal } from './components/UploadSceneModal';
+import { useStoryPersistence } from './lib/storyStore';
 import {
   BellyEmblemModal,
   BellyEmblemConfig,
@@ -638,6 +639,16 @@ export default function App() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+
+  // Scenes survive a reload: saved in this browser (IndexedDB), restored on startup.
+  useStoryPersistence<GeneratedVideo>(
+    videoHistory,
+    (saved) => {
+      setVideoHistory(saved);
+      setCurrentVideo((cur) => cur || saved[0] || null);
+    },
+    (message) => setErrorMessage(message)
+  );
 
   // Production Cast, Props, Equipment & Wardrobe Multi-Select Studio
   const [referenceAssets, setReferenceAssets] = useState<ReferenceAngle[]>(WAYFINDER_REFERENCE_ASSETS);
