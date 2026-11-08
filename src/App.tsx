@@ -91,6 +91,8 @@ import { analyzeCut, type CutAnalysis } from './api/cutAnalysis';
 import { exportStory } from './lib/storyExport';
 import SceneEditBar from './components/SceneEditBar';
 import AppLogo from './components/AppLogo';
+import TransitionModal from './components/TransitionModal';
+import { generateTransition } from './api/transition';
 import {
   BellyEmblemModal,
   BellyEmblemConfig,
@@ -635,6 +637,10 @@ export default function App() {
   const [correctionPrompt, setCorrectionPrompt] = useState<string>('');
   // Length of a new scene added with + AI / Extend: 5–15 s (10 s max when continuing a clip).
   const [newSceneSeconds, setNewSceneSeconds] = useState<number>(5);
+  // Smooth-transition panel: the two scenes the cut sits between.
+  const [transitionPair, setTransitionPair] = useState<{ from: GeneratedVideo; to: GeneratedVideo } | null>(null);
+  const [isMakingTransition, setIsMakingTransition] = useState<boolean>(false);
+  const [transitionError, setTransitionError] = useState<string | null>(null);
   const [correctionFeedback, setCorrectionFeedback] = useState<string>('');
   const [correctionSeason, setCorrectionSeason] = useState<string>('spring');
   const [correctionWeather, setCorrectionWeather] = useState<string>('sunny');
@@ -2317,6 +2323,53 @@ export default function App() {
   };
 
   useEffect(() => setCutAnalysis(null), [currentVideo?.id]);
+
+  // Generate a clip from the last frame of one scene to the first frame of the next and put it between them.
+  const handleCreateTransition = async (
+    from: GeneratedVideo,
+    to: GeneratedVideo,
+    args: { firstFrame: string; lastFrame: string; prompt: string; seconds: number }
+  ) => {
+    setIsMakingTransition(true);
+    setTransitionError(null);
+    try {
+      const result = await generateTransition({
+        firstFrame: args.firstFrame,
+        lastFrame: args.lastFrame,
+        prompt: args.prompt,
+        seconds: args.seconds,
+        aspectRatio: from.aspectRatio === '16:9' ? '16:9' : '9:16',
+        resolution,
+      });
+      const transition: GeneratedVideo = {
+        id: result.interactionId || `transition-${Date.now()}`,
+        videoUrl: result.videoUrl,
+        prompt: `Transition: ${args.prompt}`,
+        aspectRatio: from.aspectRatio,
+        duration: result.duration,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        sourceImage: from.sourceImage,
+        season: from.season,
+        weather: from.weather,
+        engine: 'omni',
+        storyId: from.storyId || from.id,
+        sceneNumber: (from.sceneNumber || 1) + 1,
+        interactionId: result.interactionId,
+      };
+      setSessionCost((prev) => prev + (resolution === '1080p' ? 0.6 : 0.35));
+      const fromNow = videoHistoryRef.current.find((v) => v.id === from.id);
+      const placed = fromNow ? replaceInStory(fromNow.id, [fromNow, transition]) : undefined;
+      if (!placed) setVideoHistory((prev) => [transition, ...prev]);
+      setCurrentVideo(placed?.find((v) => v.id === transition.id) || transition);
+      setCompareMode('video');
+      setTransitionPair(null);
+    } catch (err: any) {
+      console.error('Transition error:', err);
+      setTransitionError(`The transition could not be made: ${err?.message || 'unknown error'}`);
+    } finally {
+      setIsMakingTransition(false);
+    }
+  };
 
   const handleTrimScene = (scene: GeneratedVideo, trimStart: number | undefined, trimEnd: number | undefined) => {
     const updated = { ...scene, trimStart, trimEnd };
@@ -4313,7 +4366,22 @@ export default function App() {
                   const isSelected = currentVideo.id === scene.id;
                   return (
                     <React.Fragment key={scene.id}>
-                      {idx > 0 && <ChevronRight className="w-4 h-4 text-slate-600 shrink-0" />}
+                      {idx > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTransitionError(null);
+                            setTransitionPair({ from: currentStoryScenes[idx - 1], to: scene });
+                          }}
+                          disabled={isMakingTransition}
+                          className="shrink-0 flex flex-col items-center gap-0.5 px-1 py-1.5 rounded-lg text-slate-500 hover:text-emerald-300 hover:bg-emerald-950/40 transition-colors cursor-pointer disabled:opacity-40"
+                          title={`Smooth the cut between Scene ${currentStoryScenes[idx - 1].sceneNumber} and Scene ${scene.sceneNumber} with a generated transition`}
+                          aria-label={`Smooth transition between scene ${currentStoryScenes[idx - 1].sceneNumber} and scene ${scene.sceneNumber}`}
+                        >
+                          <ChevronRight className="w-4 h-4" />
+                          <span className="text-[9px] font-semibold uppercase tracking-wide">Smooth</span>
+                        </button>
+                      )}
                       <div
                         onClick={() => {
                           setCurrentVideo(scene);
@@ -5356,6 +5424,17 @@ export default function App() {
       />
 
       {/* Upload External Video Scene Modal */}
+      {transitionPair && (
+        <TransitionModal
+          from={transitionPair.from}
+          to={transitionPair.to}
+          busy={isMakingTransition}
+          error={transitionError}
+          onClose={() => !isMakingTransition && setTransitionPair(null)}
+          onGenerate={(args) => handleCreateTransition(transitionPair.from, transitionPair.to, args)}
+        />
+      )}
+
       <UploadSceneModal
         isOpen={showUploadSceneModal}
         onClose={() => setShowUploadSceneModal(false)}

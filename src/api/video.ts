@@ -5,13 +5,6 @@
  */
 import { generateSafePromptRephrase } from './assistant';
 import { base64ByteLength } from './base64';
-
-/** "7s" / 7 → "7s", clamped to 3..max whole seconds. Unreadable → fallback. */
-function pickDuration(value: unknown, max: number, fallback: string): string {
-  const n = typeof value === 'number' ? value : parseInt(String(value ?? ''), 10);
-  if (!Number.isFinite(n)) return fallback;
-  return `${Math.min(max, Math.max(3, Math.round(n)))}s`;
-}
 import { getGeminiClient } from './gemini';
 import type { RouteHandler } from './http';
 import { quotaState, recentGenerationLogs, recordGenerationLog, type GenerationLogRecord } from './logs';
@@ -21,6 +14,13 @@ import {
   resolveReferenceImages,
   sanitizePromptToImageReference,
 } from './references';
+
+/** "7s" / 7 → "7s", clamped to 3..max whole seconds. Unreadable → fallback. */
+function pickDuration(value: unknown, max: number, fallback: string): string {
+  const n = typeof value === 'number' ? value : parseInt(String(value ?? ''), 10);
+  if (!Number.isFinite(n)) return fallback;
+  return `${Math.min(max, Math.max(3, Math.round(n)))}s`;
+}
 
 // Image-to-Video Animation endpoint using Gemini Omni Flash via Interactions API
 export async function executeAnimateCore(body: any) {
