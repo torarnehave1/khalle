@@ -1,6 +1,16 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "khalle", "runtimeExecutable": "npx", "runtimeArgs": ["tsx", "server.ts"], "port": 3000 }
+    {
+      "name": "khalle",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "--port",
+        "3000",
+        "--strictPort"
+      ],
+      "port": 3000
+    }
   ]
 }

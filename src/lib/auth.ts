@@ -6,12 +6,15 @@
  * 3. The user is stored in localStorage 'user' and the token in the `vegvisr_token` cookie,
  *    so a login on any *.vegvisr.org app carries over.
  *
- * Login is only accepted when it yields an emailVerificationToken: server.ts checks that token
- * on every Gemini route, so a user without one could open the app but every call would fail.
+ * Login is only accepted when it yields an emailVerificationToken: the Gemini proxy worker
+ * (gemini.vegvisr.org) checks that token on every call, so a user without one could open the app
+ * but every call would fail.
  *
  * Hosts outside *.vegvisr.org: the magic-link service lets in only Superadmins, system owners
  * and that domain's World founders (email-worker isLoginAllowed).
  */
+
+import { handleLocalApi } from '../api/router';
 
 export type AuthUser = {
   userId: string;
@@ -127,9 +130,11 @@ export const sendMagicLink = async (email: string) => {
 };
 
 /**
- * Adds X-API-Token + X-User-Email to every same-origin /api/* request, and reports a 401 from the server
- * so the app can return to the sign-in screen. Installed once, before the app renders, so
- * every existing and future fetch('/api/...') call is covered without editing each one.
+ * Answers every same-origin /api/* request in the browser through the local router
+ * (src/api/router.ts — the handlers ported from server.ts, calling the Gemini proxy worker), and
+ * reports a 401 so the app can return to the sign-in screen. Installed once, before the app
+ * renders, so every existing and future fetch('/api/...') call is covered without editing each one.
+ * Everything else (including the worker calls themselves) goes to the network unchanged.
  */
 export const installApiAuth = (onUnauthorized: () => void) => {
   const originalFetch = window.fetch.bind(window);
@@ -139,13 +144,8 @@ export const installApiAuth = (onUnauthorized: () => void) => {
     const isOwnApi = resolved.origin === window.location.origin && resolved.pathname.startsWith('/api/');
     if (!isOwnApi) return originalFetch(input, init);
 
-    const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined));
-    const user = readStoredUser();
-    if (user) {
-      headers.set('X-API-Token', user.token);
-      headers.set('X-User-Email', user.email);
-    }
-    const res = await originalFetch(input, { ...init, headers });
+    const request = new Request(input instanceof Request ? input : resolved.href, init);
+    const res = await handleLocalApi(request);
     if (res.status === 401) onUnauthorized();
     return res;
   };
