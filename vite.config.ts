@@ -13,8 +13,8 @@ function git(cmd: string): string {
     return '';
   }
 }
-const BUILD_SHA = process.env.CF_PAGES_COMMIT_SHA || git('rev-parse HEAD') || 'unknown';
-const BUILD_BRANCH = process.env.CF_PAGES_BRANCH || git('rev-parse --abbrev-ref HEAD') || 'unknown';
+const BUILD_SHA = process.env.CF_PAGES_COMMIT_SHA || process.env.WORKERS_CI_COMMIT_SHA || git('rev-parse HEAD') || 'unknown';
+const BUILD_BRANCH = process.env.CF_PAGES_BRANCH || process.env.WORKERS_CI_BRANCH || git('rev-parse --abbrev-ref HEAD') || 'unknown';
 
 export default defineConfig(() => {
   return {
@@ -23,7 +23,6 @@ export default defineConfig(() => {
       __BUILD_SHA__: JSON.stringify(BUILD_SHA),
       __BUILD_BRANCH__: JSON.stringify(BUILD_BRANCH),
       __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
-      __BUILD_ENV__: JSON.stringify(process.env.CF_PAGES ? 'pages' : 'local'),
     },
     resolve: {
       alias: {

@@ -2,4 +2,3 @@
 declare const __BUILD_SHA__: string;
 declare const __BUILD_BRANCH__: string;
 declare const __BUILD_TIME__: string;
-declare const __BUILD_ENV__: 'pages' | 'local';
