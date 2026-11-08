@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { AuthBar } from 'vegvisr-ui-kit';
 import BuildPill from './BuildPill';
+import AppLogo from './AppLogo';
 import { Mail, RefreshCw } from 'lucide-react';
 import {
   clearStoredUser,
@@ -116,10 +117,8 @@ export default function AuthGate({ children }: { children: ReactNode }) {
       <div className="relative min-h-screen flex flex-col px-4 sm:px-8 py-6">
         <header className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 via-teal-500 to-lime-400 p-0.5">
-              <div className="w-full h-full bg-slate-950 rounded-[10px] flex items-center justify-center text-xl">🐇</div>
-            </div>
-            <span className="font-bold text-lg text-white tracking-tight">RabbitHop</span>
+            <AppLogo />
+            <span className="font-bold text-lg text-white tracking-tight">Khalle</span>
           </div>
           <BuildPill />
         </header>
@@ -132,7 +131,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
               </p>
             ) : (
               <>
-                <h1 className="text-xl font-bold text-white">Sign in to RabbitHop</h1>
+                <h1 className="text-xl font-bold text-white">Sign in to Khalle</h1>
                 <p className="mt-1 text-sm text-slate-400">
                   Enter your email and we'll send you a sign-in link. No password needed.
                 </p>

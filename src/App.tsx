@@ -90,6 +90,7 @@ import { grabFrame } from './lib/frameGrab';
 import { analyzeCut, type CutAnalysis } from './api/cutAnalysis';
 import { exportStory } from './lib/storyExport';
 import SceneEditBar from './components/SceneEditBar';
+import AppLogo from './components/AppLogo';
 import {
   BellyEmblemModal,
   BellyEmblemConfig,
@@ -1955,7 +1956,7 @@ export default function App() {
         (p) => setStoryExport(p)
       );
       const url = URL.createObjectURL(blob);
-      downloadVideo(url, `rabbithop-story-${currentStoryScenes.length}-scenes.mp4`);
+      downloadVideo(url, `khalle-story-${currentStoryScenes.length}-scenes.mp4`);
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch (err: any) {
       setErrorMessage(`The story could not be exported: ${err?.message || err}`);
@@ -2446,10 +2447,10 @@ export default function App() {
 
         let watermarkText = '';
         if (watermarkConfig.type === 'preset') {
-          if (watermarkConfig.presetId === 'rabbithop') watermarkText = '🐇 RabbitHop Studio';
+          if (watermarkConfig.presetId === 'rabbithop') watermarkText = '🐇 Khalle Studio';
           else if (watermarkConfig.presetId === 'omni_flash') watermarkText = '✨ Gemini Omni Flash';
           else if (watermarkConfig.presetId === 'alpine_cinema') watermarkText = '🎬 Alpine Cinema 4K';
-          else watermarkText = watermarkConfig.customText || '@RabbitHopStudio';
+          else watermarkText = watermarkConfig.customText || '@KhalleStudio';
         } else if (watermarkConfig.type === 'text') {
           watermarkText = watermarkConfig.customText || '@Creator';
         }
@@ -2543,15 +2544,11 @@ export default function App() {
       <header className="border-b border-slate-800/80 bg-slate-900/90 backdrop-blur-md sticky top-0 z-40 px-4 lg:px-8 py-3.5">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 via-teal-500 to-lime-400 p-0.5 shadow-lg shadow-emerald-500/20">
-              <div className="w-full h-full bg-slate-950 rounded-[10px] flex items-center justify-center text-xl">
-                🐇
-              </div>
-            </div>
+            <AppLogo />
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="font-bold text-lg text-white tracking-tight flex items-center gap-1.5">
-                  RabbitHop <span className="text-emerald-400 text-sm font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">AI Video</span>
+                  Khalle <span className="text-emerald-400 text-sm font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">AI Video</span>
                 </h1>
               </div>
               <p className="text-xs text-slate-400 hidden sm:block">

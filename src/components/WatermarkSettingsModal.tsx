@@ -206,7 +206,7 @@ export const WatermarkSettingsModal: React.FC<WatermarkSettingsModalProps> = ({
               </label>
               <div className="grid grid-cols-3 gap-2">
                 {[
-                  { id: 'rabbithop', title: 'RabbitHop Studio', icon: '🐇', color: 'text-emerald-300' },
+                  { id: 'rabbithop', title: 'Khalle Studio', icon: '🐇', color: 'text-emerald-300' },
                   { id: 'omni_flash', title: 'Gemini Omni Flash', icon: '✨', color: 'text-purple-300' },
                   { id: 'alpine_cinema', title: 'Alpine Cinema 4K', icon: '🎬', color: 'text-amber-300' },
                 ].map((preset) => (
@@ -272,7 +272,7 @@ export const WatermarkSettingsModal: React.FC<WatermarkSettingsModalProps> = ({
               </label>
               <input
                 type="text"
-                placeholder="e.g. @MyChannel, Tor Arne Have, RabbitHop Pro..."
+                placeholder="e.g. @MyChannel, Tor Arne Have, Khalle Pro..."
                 value={localConfig.customText}
                 onChange={(e) => updateSetting('customText', e.target.value)}
                 className="w-full text-xs bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"

@@ -95,7 +95,7 @@ async function workerFetch(path: string, init: RequestInit, mode: Mode, timeoutM
   const token = getApiToken();
   if (!token) {
     unauthorizedEpoch++;
-    throw new GeminiApiError('Sign in to use RabbitHop.', 401);
+    throw new GeminiApiError('Sign in to use Khalle.', 401);
   }
   const headers = new Headers(init.headers);
   headers.set('X-API-Token', token);

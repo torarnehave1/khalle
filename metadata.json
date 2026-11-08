@@ -1,5 +1,5 @@
 {
-  "name": "Rabbit Hop: AI Photo Animator",
+  "name": "Khalle: AI Photo Animator",
   "description": "Animate photos into vibrant videos with Gemini Omni Flash. Make the cute plush rabbit jump and come to life!",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

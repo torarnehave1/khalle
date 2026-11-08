@@ -67,7 +67,7 @@ export async function handleLocalApi(request: Request): Promise<Response> {
   }
 
   if (!PUBLIC_ROUTES.has(routeKey) && !readStoredUser()) {
-    return json(401, { error: 'Sign in to use RabbitHop.' });
+    return json(401, { error: 'Sign in to use Khalle.' });
   }
 
   // express.json(): JSON bodies are parsed, anything else leaves req.body = {}.

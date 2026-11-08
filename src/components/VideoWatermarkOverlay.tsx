@@ -16,7 +16,7 @@ export const DEFAULT_WATERMARK_CONFIG: WatermarkConfig = {
   enabled: true,
   type: 'preset',
   presetId: 'rabbithop',
-  customText: '@RabbitHopStudio',
+  customText: '@KhalleStudio',
   position: 'bottom-right',
   opacity: 0.85,
   scale: 'medium',
@@ -82,7 +82,7 @@ export const VideoWatermarkOverlay: React.FC<VideoWatermarkOverlayProps> = ({ co
               <div className="flex items-center gap-1.5 font-bold tracking-tight text-white whitespace-nowrap">
                 <span className="text-base leading-none">🐇</span>
                 <span className="bg-gradient-to-r from-emerald-300 via-teal-200 to-lime-300 bg-clip-text text-transparent font-extrabold">
-                  RabbitHop
+                  Khalle
                 </span>
                 <span className="text-[9px] uppercase px-1 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-mono">
                   STUDIO
@@ -116,7 +116,7 @@ export const VideoWatermarkOverlay: React.FC<VideoWatermarkOverlayProps> = ({ co
 
             {config.presetId === 'custom_text' && (
               <span className="font-bold tracking-wide text-white drop-shadow-sm whitespace-nowrap">
-                {config.customText || '@RabbitHopStudio'}
+                {config.customText || '@KhalleStudio'}
               </span>
             )}
           </>
