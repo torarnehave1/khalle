@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import { AuthBar, EcosystemNav } from 'vegvisr-ui-kit';
+import { AuthBar } from 'vegvisr-ui-kit';
 import { Mail, RefreshCw } from 'lucide-react';
 import {
   clearStoredUser,
@@ -95,8 +95,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
   if (status === 'authed' && user) {
     return (
       <>
-        <div className="flex items-center gap-3 px-4 lg:px-8 py-2 border-b border-slate-800/80 bg-slate-950 text-white">
-          <EcosystemNav className="flex-1 min-w-0" showRecorder={false} />
+        <div className="flex items-center justify-end gap-3 px-4 lg:px-8 py-2 border-b border-slate-800/80 bg-slate-950 text-white">
           <AuthBar
             userEmail={user.email}
             badgeLabel={user.role || 'User'}
@@ -121,7 +120,6 @@ export default function AuthGate({ children }: { children: ReactNode }) {
             <span className="font-bold text-lg text-white tracking-tight">RabbitHop</span>
           </div>
         </header>
-        <EcosystemNav className="mt-4" showRecorder={false} />
 
         <main className="flex-1 flex items-center justify-center py-10">
           <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900/80 p-6 shadow-xl">
