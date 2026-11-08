@@ -889,10 +889,8 @@ export default function App() {
       const rawDuration = Math.round(tempVideo.duration) || 5;
       const durationLabel = `${rawDuration}s`;
 
-      const activeStoryId =
-        currentVideo?.storyId ||
-        videoHistory[0]?.storyId ||
-        `story-${Date.now()}`;
+      // No story open (after "New story", or on a fresh start): the upload starts a new story.
+      const activeStoryId = currentVideo?.storyId || `story-${Date.now()}`;
 
       const storyScenes = videoHistory
         .filter((v) => v.storyId === activeStoryId)
@@ -1204,6 +1202,28 @@ export default function App() {
   );
 
   // Active story scenes for multi-scene sequence
+  // All stories, newest first: each is its scenes in order.
+  const stories = useMemo(() => {
+    const byId = new Map<string, GeneratedVideo[]>();
+    for (const v of videoHistory) {
+      const key = v.storyId || v.id;
+      if (!byId.has(key)) byId.set(key, []);
+      byId.get(key)!.push(v);
+    }
+    return [...byId.entries()].map(([storyId, scenes]) => ({
+      storyId,
+      scenes: scenes.sort((a, b) => (a.sceneNumber || 1) - (b.sceneNumber || 1)),
+    }));
+  }, [videoHistory]);
+
+  // Close the open story; the next Generate or Upload Video starts a new one.
+  const handleStartNewStory = () => {
+    setCurrentVideo(null);
+    setCompareMode('video');
+    setShowExtensionDrawer(false);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   const currentStoryScenes = useMemo(() => {
     if (!currentVideo) return [];
     const scenes = videoHistory
@@ -4195,7 +4215,17 @@ export default function App() {
                   </span>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleStartNewStory}
+                    className="text-[11px] px-2.5 py-1 rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer bg-slate-950 border-slate-700 text-slate-200 hover:border-emerald-500"
+                    title="Close this story and start a new one with the next Generate or Upload Video"
+                  >
+                    <PlusCircle className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>New story</span>
+                  </button>
+
                   {/* Continuous Auto-play toggle */}
                   <button
                     type="button"
@@ -4747,14 +4777,45 @@ export default function App() {
             </div>
           )}
 
-          {/* Video History Gallery */}
+          {/* Stories: every story with its scenes; click a scene to open that story */}
           {videoHistory.length > 0 && (
-            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-xl flex flex-col gap-3">
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                <Film className="w-3.5 h-3.5 text-lime-400" /> Generated Takes ({videoHistory.length})
-              </span>
+            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-xl flex flex-col gap-4">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                  <Film className="w-3.5 h-3.5 text-lime-400" /> Stories ({stories.length})
+                </span>
+                <button
+                  type="button"
+                  onClick={handleStartNewStory}
+                  className="text-[11px] px-2.5 py-1 rounded-lg border flex items-center gap-1.5 cursor-pointer bg-slate-950 border-slate-700 text-slate-200 hover:border-emerald-500"
+                >
+                  <PlusCircle className="w-3.5 h-3.5 text-emerald-400" /> New story
+                </button>
+              </div>
+              {!currentVideo && (
+                <p className="text-xs text-emerald-200 bg-emerald-950/40 border border-emerald-800/60 rounded-lg p-2.5">
+                  New story: generate the first scene at the top of the page, or use Upload Video. Click any scene below to go back to an older story.
+                </p>
+              )}
+              {stories.map(({ storyId, scenes }) => {
+                const isOpen = !!currentVideo && (currentVideo.storyId || currentVideo.id) === storyId;
+                const seconds = scenes.reduce((sum, sc) => {
+                  const full = parseInt(sc.duration || '', 10) || 5;
+                  return sum + Math.max(0, (sc.trimEnd ?? full) - (sc.trimStart ?? 0));
+                }, 0);
+                return (
+                  <section key={storyId} className={`flex flex-col gap-2 rounded-xl p-2 ${isOpen ? 'bg-emerald-950/20 ring-1 ring-emerald-700/50' : ''}`}>
+                    <div className="flex items-center gap-2 text-[11px] text-slate-400 min-w-0">
+                      <span className={`font-semibold shrink-0 ${isOpen ? 'text-emerald-300' : 'text-slate-200'}`}>
+                        {isOpen ? 'Open story' : 'Story'}
+                      </span>
+                      <span className="truncate">{scenes[0]?.prompt}</span>
+                      <span className="shrink-0 font-mono text-slate-500">
+                        {scenes.length} {scenes.length === 1 ? 'scene' : 'scenes'} · {Math.round(seconds)}s
+                      </span>
+                    </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {videoHistory.map((vid) => (
+                {scenes.map((vid) => (
                   <div
                     key={vid.id}
                     onClick={() => {
@@ -4796,6 +4857,9 @@ export default function App() {
                   </div>
                 ))}
               </div>
+                  </section>
+                );
+              })}
             </div>
           )}
         </div>
