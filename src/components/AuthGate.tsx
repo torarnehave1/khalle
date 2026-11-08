@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { AuthBar } from 'vegvisr-ui-kit';
+import BuildPill from './BuildPill';
 import { Mail, RefreshCw } from 'lucide-react';
 import {
   clearStoredUser,
@@ -96,6 +97,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
     return (
       <>
         <div className="flex items-center justify-end gap-3 px-4 lg:px-8 py-2 border-b border-slate-800/80 bg-slate-950 text-white">
+          <BuildPill />
           <AuthBar
             userEmail={user.email}
             badgeLabel={user.role || 'User'}
@@ -119,6 +121,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
             </div>
             <span className="font-bold text-lg text-white tracking-tight">RabbitHop</span>
           </div>
+          <BuildPill />
         </header>
 
         <main className="flex-1 flex items-center justify-center py-10">
