@@ -85,6 +85,8 @@ import {
 } from './components/ScriptToStoryModal';
 import { UploadSceneModal } from './components/UploadSceneModal';
 import { useStoryPersistence } from './lib/storyStore';
+import { useTrimmedPlayback } from './lib/trimPlayback';
+import SceneEditBar from './components/SceneEditBar';
 import {
   BellyEmblemModal,
   BellyEmblemConfig,
@@ -554,6 +556,9 @@ export interface GeneratedVideo {
   sceneNumber: number;
   interactionId?: string;
   previousInteractionId?: string;
+  /** Edit list: play only this part of the clip (seconds). The clip file itself is never cut. */
+  trimStart?: number;
+  trimEnd?: number;
 }
 
 export default function App() {
@@ -637,6 +642,7 @@ export default function App() {
 
   // Refs
   const videoRef = useRef<HTMLVideoElement>(null);
+  const splitVideoRef = useRef<HTMLVideoElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
 
@@ -2126,6 +2132,84 @@ export default function App() {
     videoRef.current.currentTime = 0;
     videoRef.current.play();
     setIsPlaying(true);
+  };
+
+  // What happens when the selected scene's segment ends (natural end, or its trimEnd).
+  const advanceAfterScene = (player: HTMLVideoElement | null, trimmedEnd: boolean) => {
+    if (!currentVideo) return;
+    if (playAllContinuous && currentStoryScenes.length > 1) {
+      const idx = currentStoryScenes.findIndex((s) => s.id === currentVideo.id);
+      if (idx !== -1 && idx < currentStoryScenes.length - 1) {
+        setCurrentVideo(currentStoryScenes[idx + 1]);
+      } else if (isLooping) {
+        if (currentStoryScenes[0].id === currentVideo.id && player) {
+          player.currentTime = currentVideo.trimStart || 0;
+          player.play().catch(() => {});
+        }
+        setCurrentVideo(currentStoryScenes[0]);
+      } else {
+        player?.pause();
+        setIsPlaying(false);
+      }
+    } else if (trimmedEnd && isLooping && player) {
+      // Native `loop` only knows the clip's real end; loop the trimmed segment ourselves.
+      player.currentTime = currentVideo.trimStart || 0;
+      player.play().catch(() => {});
+    } else if (!isLooping || trimmedEnd) {
+      player?.pause();
+      setIsPlaying(false);
+    }
+  };
+
+  useTrimmedPlayback(videoRef, currentVideo?.videoUrl, currentVideo?.trimStart, currentVideo?.trimEnd, () =>
+    advanceAfterScene(videoRef.current, true)
+  );
+  useTrimmedPlayback(splitVideoRef, currentVideo?.videoUrl, currentVideo?.trimStart, currentVideo?.trimEnd, () =>
+    advanceAfterScene(splitVideoRef.current, true)
+  );
+
+  const replaceInStory = (sceneId: string, replacement: GeneratedVideo[]) => {
+    if (!currentVideo) return;
+    const storyId = currentVideo.storyId;
+    const storyScenes = videoHistory
+      .filter((v) => v.storyId === storyId)
+      .sort((a, b) => (a.sceneNumber || 1) - (b.sceneNumber || 1));
+    const idx = storyScenes.findIndex((s) => s.id === sceneId);
+    if (idx === -1) return;
+    storyScenes.splice(idx, 1, ...replacement);
+    const renumbered = storyScenes.map((s, i) => ({ ...s, sceneNumber: i + 1 }));
+    const otherStories = videoHistory.filter((v) => v.storyId !== storyId);
+    setVideoHistory([...renumbered, ...otherStories]);
+    return renumbered;
+  };
+
+  const handleTrimScene = (scene: GeneratedVideo, trimStart: number | undefined, trimEnd: number | undefined) => {
+    const updated = { ...scene, trimStart, trimEnd };
+    const renumbered = replaceInStory(scene.id, [updated]);
+    const next = renumbered?.find((s) => s.id === scene.id) || updated;
+    setCurrentVideo(next);
+  };
+
+  // Split one scene into two edit-list entries over the same clip, at `at` seconds.
+  const handleSplitScene = (scene: GeneratedVideo, at: number) => {
+    const firstId = `${scene.id}-split-${Date.now()}`;
+    const first: GeneratedVideo = {
+      ...scene,
+      id: firstId,
+      trimEnd: at,
+      // The stored Gemini interaction ends where the clip ends, not at the cut, so the first part
+      // can't be continued through it.
+      interactionId: undefined,
+    };
+    const second: GeneratedVideo = {
+      ...scene,
+      trimStart: at,
+      previousInteractionId: undefined,
+    };
+    const renumbered = replaceInStory(scene.id, [first, second]);
+    setCurrentVideo(renumbered?.find((s) => s.id === firstId) || first);
+    videoRef.current?.pause();
+    setIsPlaying(false);
   };
 
   const handleSpeedChange = (speed: number) => {
@@ -3626,25 +3710,12 @@ export default function App() {
                         ref={videoRef}
                         src={currentVideo.videoUrl}
                         autoPlay
-                        loop={isLooping && !playAllContinuous}
+                        loop={isLooping && !playAllContinuous && currentVideo.trimEnd === undefined}
                         playsInline
                         className="max-h-[540px] max-w-full object-contain rounded-lg shadow-2xl"
                         onPlay={() => setIsPlaying(true)}
                         onPause={() => setIsPlaying(false)}
-                        onEnded={() => {
-                          if (playAllContinuous && currentStoryScenes.length > 1) {
-                            const idx = currentStoryScenes.findIndex((s) => s.id === currentVideo.id);
-                            if (idx !== -1 && idx < currentStoryScenes.length - 1) {
-                              setCurrentVideo(currentStoryScenes[idx + 1]);
-                            } else if (isLooping) {
-                              setCurrentVideo(currentStoryScenes[0]);
-                            } else {
-                              setIsPlaying(false);
-                            }
-                          } else if (!isLooping) {
-                            setIsPlaying(false);
-                          }
-                        }}
+                        onEnded={() => advanceAfterScene(videoRef.current, false)}
                       />
                       <VideoWatermarkOverlay config={watermarkConfig} />
                     </div>
@@ -3674,21 +3745,13 @@ export default function App() {
                         </span>
                         <div className="relative max-h-[460px] flex items-center justify-center">
                           <video
+                            ref={splitVideoRef}
                             src={currentVideo.videoUrl}
                             autoPlay
-                            loop={isLooping && !playAllContinuous}
+                            loop={isLooping && !playAllContinuous && currentVideo.trimEnd === undefined}
                             playsInline
                             className="max-h-[460px] object-contain rounded-lg border border-emerald-500/40"
-                            onEnded={() => {
-                              if (playAllContinuous && currentStoryScenes.length > 1) {
-                                const idx = currentStoryScenes.findIndex((s) => s.id === currentVideo.id);
-                                if (idx !== -1 && idx < currentStoryScenes.length - 1) {
-                                  setCurrentVideo(currentStoryScenes[idx + 1]);
-                                } else if (isLooping) {
-                                  setCurrentVideo(currentStoryScenes[0]);
-                                }
-                              }
-                            }}
+                            onEnded={() => advanceAfterScene(splitVideoRef.current, false)}
                           />
                           <VideoWatermarkOverlay config={watermarkConfig} />
                         </div>
@@ -3772,6 +3835,18 @@ export default function App() {
                 </div>
               )}
             </div>
+
+            {/* Scene edit bar: trim / split the selected scene (edit list, no re-encode) */}
+            {currentVideo && compareMode === 'video' && (
+              <SceneEditBar
+                videoRef={videoRef}
+                src={currentVideo.videoUrl}
+                trimStart={currentVideo.trimStart}
+                trimEnd={currentVideo.trimEnd}
+                onTrim={(start, end) => handleTrimScene(currentVideo, start, end)}
+                onSplit={(at) => handleSplitScene(currentVideo, at)}
+              />
+            )}
 
             {/* Video Controls Bar (Active when video exists) */}
             {currentVideo && (
@@ -4109,7 +4184,9 @@ export default function App() {
                           </span>
                           <div className="flex items-center gap-1">
                             <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-800 text-slate-300">
-                              {scene.duration || '5s'}
+                              {scene.trimStart !== undefined || scene.trimEnd !== undefined
+                                ? `${(scene.trimStart ?? 0).toFixed(1)}–${scene.trimEnd !== undefined ? scene.trimEnd.toFixed(1) : 'end'}s`
+                                : scene.duration || '5s'}
                             </span>
                             {/* Quick card action buttons */}
                             <button
