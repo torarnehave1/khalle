@@ -711,7 +711,8 @@ export default function App() {
   const [transitionPair, setTransitionPair] = useState<{ from: GeneratedVideo | null; to: GeneratedVideo; startImage?: string } | null>(null);
   // Drag and drop on the storyboard: the scene being dragged and where it would land.
   const [dragSceneId, setDragSceneId] = useState<string | null>(null);
-  const [dropIndex, setDropIndex] = useState<number | null>(null);
+  /** Where a dragged scene would land: a story and a 0-based slot in it. `copy` while Alt is held. */
+  const [dropTarget, setDropTarget] = useState<{ storyId: string; index: number; copy: boolean; landsAs: number; blocked?: string } | null>(null);
   const [isMakingTransition, setIsMakingTransition] = useState<boolean>(false);
   const [transitionError, setTransitionError] = useState<string | null>(null);
   // After a scene is corrected, the next scene still follows the old take. Offer a transition.
@@ -1042,6 +1043,107 @@ export default function App() {
     videoHistoryRef.current = next;
     setVideoHistory(next);
     setCurrentVideo((cur) => (cur ? renumbered.find((s) => s.id === cur.id) || cur : cur));
+  };
+
+  /**
+   * Put a scene into a story at `toIndex` (0-based, counted before the move): moved out of its own
+   * story, or with `copy` a new scene with its own id (its clip is stored again under that id).
+   * Stories keep their place in the list; both stories are renumbered.
+   */
+  const placeScene = (sceneId: string, targetStoryId: string, toIndex: number, copy: boolean) => {
+    const history = videoHistoryRef.current;
+    const scene = history.find((v) => v.id === sceneId);
+    if (!scene) return;
+    if (!copy && scene.storyId === targetStoryId) return moveSceneTo(sceneId, toIndex);
+    const byNumber = (a: GeneratedVideo, b: GeneratedVideo) => (a.sceneNumber || 1) - (b.sceneNumber || 1);
+    const target = history.filter((v) => v.storyId === targetStoryId).sort(byNumber);
+    if (target.length && target[0].aspectRatio !== scene.aspectRatio) {
+      setErrorMessage(`That story is ${target[0].aspectRatio} and the scene is ${scene.aspectRatio}. A story can't mix the two shapes.`);
+      return;
+    }
+    const placed: GeneratedVideo = copy
+      ? { ...scene, id: `vid-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, storyId: targetStoryId }
+      : { ...scene, storyId: targetStoryId };
+    // A move within one story is handled above, so `target` holds the scene itself only for a copy.
+    target.splice(Math.max(0, Math.min(target.length, toIndex)), 0, placed);
+    const groups = new Map<string, GeneratedVideo[]>();
+    for (const v of history) {
+      const key = v.storyId;
+      if (!groups.has(key)) groups.set(key, []);
+    }
+    if (!groups.has(targetStoryId)) groups.set(targetStoryId, []);
+    for (const [key] of groups) {
+      if (key === targetStoryId) {
+        groups.set(key, target);
+      } else if (!copy && key === scene.storyId) {
+        groups.set(key, history.filter((v) => v.storyId === key && v.id !== sceneId).sort(byNumber));
+      } else {
+        groups.set(key, history.filter((v) => v.storyId === key));
+      }
+    }
+    const renumber = (list: GeneratedVideo[]) => list.map((s, i) => ({ ...s, sceneNumber: i + 1 }));
+    const changed = new Set([targetStoryId, ...(copy ? [] : [scene.storyId])]);
+    const next = [...groups.entries()].flatMap(([key, list]) => (changed.has(key) ? renumber(list) : list));
+    videoHistoryRef.current = next;
+    setVideoHistory(next);
+    const placedNow = next.find((v) => v.id === placed.id)!;
+    // A moved open scene takes the open story with it, so the result is on screen.
+    setCurrentVideo((cur) => (!cur ? cur : !copy && cur.id === sceneId ? placedNow : next.find((v) => v.id === cur.id) || cur));
+  };
+
+  /** Drag-and-drop of scene cards, shared by the storyboard strip and the Stories list. */
+  const startSceneDrag = (e: React.DragEvent<HTMLElement>, sceneId: string) => {
+    setDragSceneId(sceneId);
+    e.dataTransfer.effectAllowed = 'copyMove';
+    e.dataTransfer.setData('text/plain', sceneId);
+  };
+  const endSceneDrag = () => {
+    setDragSceneId(null);
+    setDropTarget(null);
+  };
+  const sceneDragOver = (e: React.DragEvent<HTMLElement>, storyId: string, index: number | 'end') => {
+    if (!dragSceneId) return;
+    e.stopPropagation();
+    const history = videoHistoryRef.current;
+    const dragged = history.find((v) => v.id === dragSceneId);
+    const story = history.filter((v) => v.storyId === storyId);
+    const copy = e.altKey;
+    let slot = index === 'end' ? story.length : index;
+    if (typeof index === 'number') {
+      const box = e.currentTarget.getBoundingClientRect();
+      slot = e.clientX < box.left + box.width / 2 ? index : index + 1;
+    }
+    const blocked =
+      dragged && story.length && story[0].aspectRatio !== dragged.aspectRatio
+        ? `this story is ${story[0].aspectRatio} and the scene is ${dragged.aspectRatio}`
+        : undefined;
+    if (!blocked) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = copy ? 'copy' : 'move';
+    }
+    // The scene number it gets: moving later in its own story, the slot counts the scene itself.
+    const own = !copy && dragged?.storyId === storyId ? story.findIndex((v) => v.id === dragged.id) : -1;
+    const sorted = story.slice().sort((a, b) => (a.sceneNumber || 1) - (b.sceneNumber || 1));
+    const from = own === -1 ? -1 : sorted.findIndex((v) => v.id === dragSceneId);
+    const landsAs = from !== -1 && slot > from ? slot : slot + 1;
+    setDropTarget((t) =>
+      t && t.storyId === storyId && t.index === slot && t.copy === copy && t.blocked === blocked ? t : { storyId, index: slot, copy, landsAs, blocked }
+    );
+  };
+  const sceneDrop = (e: React.DragEvent<HTMLElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (dragSceneId && dropTarget && !dropTarget.blocked) placeScene(dragSceneId, dropTarget.storyId, dropTarget.index, e.altKey);
+    endSceneDrag();
+  };
+  /** The green (move) or blue (copy) bar beside the card the scene would land next to. */
+  const dropBar = (storyId: string, idx: number, sceneId: string) => {
+    if (!dragSceneId || !dropTarget || dropTarget.blocked || dropTarget.storyId !== storyId) return '';
+    if (dragSceneId === sceneId && !dropTarget.copy) return '';
+    // Whole class names, so Tailwind finds them in the source.
+    if (dropTarget.index === idx) return dropTarget.copy ? 'shadow-[-6px_0_0_0_rgb(56,189,248)] ' : 'shadow-[-6px_0_0_0_rgb(52,211,153)] ';
+    if (dropTarget.index === idx + 1) return dropTarget.copy ? 'shadow-[6px_0_0_0_rgb(56,189,248)] ' : 'shadow-[6px_0_0_0_rgb(52,211,153)] ';
+    return '';
   };
 
   const handleMoveScene = (sceneId: string, direction: 'left' | 'right') => {
@@ -4576,7 +4678,11 @@ export default function App() {
               })()}
 
               {/* Timeline Strip */}
-              <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin">
+              <div
+                className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin"
+                onDragOver={(e) => sceneDragOver(e, currentVideo.storyId, 'end')}
+                onDrop={sceneDrop}
+              >
                 {currentStoryScenes.map((scene, idx) => {
                   const isSelected = currentVideo.id === scene.id;
                   return (
@@ -4598,41 +4704,20 @@ export default function App() {
                         </button>
                       )}
                       <div
-                        draggable={currentStoryScenes.length > 1}
-                        onDragStart={(e) => {
-                          setDragSceneId(scene.id);
-                          e.dataTransfer.effectAllowed = 'move';
-                          e.dataTransfer.setData('text/plain', scene.id);
-                        }}
-                        onDragOver={(e) => {
-                          if (!dragSceneId) return;
-                          e.preventDefault();
-                          const box = e.currentTarget.getBoundingClientRect();
-                          setDropIndex(e.clientX < box.left + box.width / 2 ? idx : idx + 1);
-                        }}
-                        onDrop={(e) => {
-                          e.preventDefault();
-                          if (dragSceneId && dropIndex !== null) moveSceneTo(dragSceneId, dropIndex);
-                          setDragSceneId(null);
-                          setDropIndex(null);
-                        }}
-                        onDragEnd={() => {
-                          setDragSceneId(null);
-                          setDropIndex(null);
-                        }}
+                        draggable
+                        onDragStart={(e) => startSceneDrag(e, scene.id)}
+                        onDragOver={(e) => sceneDragOver(e, scene.storyId, idx)}
+                        onDrop={sceneDrop}
+                        onDragEnd={endSceneDrag}
                         onClick={() => {
                           setCurrentVideo(scene);
                           setCompareMode('video');
                         }}
-                        title={currentStoryScenes.length > 1 ? 'Drag to move this scene' : undefined}
+                        title="Drag to move this scene, here or into another story. Hold Alt (Option) to copy it instead"
                         className={`shrink-0 w-48 p-2.5 rounded-xl border transition-all cursor-pointer flex flex-col gap-1.5 group relative ${
                           dragSceneId === scene.id ? 'opacity-40 ' : ''
                         }${
-                          dragSceneId && dragSceneId !== scene.id && dropIndex === idx
-                            ? 'shadow-[-6px_0_0_0_rgb(52,211,153)] '
-                            : dragSceneId && dragSceneId !== scene.id && dropIndex === idx + 1
-                            ? 'shadow-[6px_0_0_0_rgb(52,211,153)] '
-                            : ''
+                          dropBar(scene.storyId, idx, scene.id)
                         }${
                           isSelected
                             ? 'bg-emerald-950/50 border-emerald-500 shadow-md shadow-emerald-500/20 ring-1 ring-emerald-500/50'
@@ -5039,7 +5124,22 @@ export default function App() {
                 const isOpen = !!currentVideo && (currentVideo.storyId || currentVideo.id) === storyId;
                 const seconds = scenes.reduce((sum, sc) => sum + scenePlaySeconds(sc), 0);
                 return (
-                  <section key={storyId} className={`flex flex-col gap-2 rounded-xl p-2 ${isOpen ? 'bg-emerald-950/20 ring-1 ring-emerald-700/50' : ''}`}>
+                  <section
+                    key={storyId}
+                    onDragOver={(e) => sceneDragOver(e, storyId, 'end')}
+                    onDrop={sceneDrop}
+                    className={`flex flex-col gap-2 rounded-xl p-2 ${
+                      dragSceneId && dropTarget?.storyId === storyId
+                        ? dropTarget.blocked
+                          ? 'bg-rose-950/20 ring-1 ring-rose-700/60'
+                          : dropTarget.copy
+                          ? 'bg-sky-950/20 ring-1 ring-sky-600/60'
+                          : 'bg-emerald-950/30 ring-1 ring-emerald-500/60'
+                        : isOpen
+                        ? 'bg-emerald-950/20 ring-1 ring-emerald-700/50'
+                        : ''
+                    }`}
+                  >
                     <div className="flex items-center gap-2 text-[11px] text-slate-400 min-w-0">
                       <span className={`font-semibold shrink-0 ${isOpen ? 'text-emerald-300' : 'text-slate-200'}`}>
                         {isOpen ? 'Open story' : 'Story'}
@@ -5049,15 +5149,30 @@ export default function App() {
                         {scenes.length} {scenes.length === 1 ? 'scene' : 'scenes'} · {Math.round(seconds)}s
                       </span>
                     </div>
+                    {dragSceneId && dropTarget?.storyId === storyId && (
+                      <p className={`text-[11px] ${dropTarget.blocked ? 'text-rose-300' : dropTarget.copy ? 'text-sky-300' : 'text-emerald-300'}`}>
+                        {dropTarget.blocked
+                          ? `Can't drop here: ${dropTarget.blocked}.`
+                          : `Drop to ${dropTarget.copy ? 'copy' : 'move'} the scene here as Scene ${dropTarget.landsAs}.${dropTarget.copy ? '' : ' Hold Alt (Option) to copy instead.'}`}
+                      </p>
+                    )}
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {scenes.map((vid) => (
+                {scenes.map((vid, idx) => (
                   <div
                     key={vid.id}
+                    draggable
+                    onDragStart={(e) => startSceneDrag(e, vid.id)}
+                    onDragOver={(e) => sceneDragOver(e, storyId, idx)}
+                    onDrop={sceneDrop}
+                    onDragEnd={endSceneDrag}
+                    title="Drag into any story to move this scene. Hold Alt (Option) to copy it instead"
                     onClick={() => {
                       setCurrentVideo(vid);
                       setCompareMode('video');
                     }}
                     className={`p-2 rounded-xl border transition-all cursor-pointer flex flex-col gap-2 group ${
+                      dragSceneId === vid.id ? 'opacity-40 ' : ''
+                    }${dropBar(storyId, idx, vid.id)}${
                       currentVideo?.id === vid.id
                         ? 'bg-emerald-950/40 border-emerald-500 shadow-md shadow-emerald-500/10'
                         : 'bg-slate-950 border-slate-800 hover:border-slate-700'
