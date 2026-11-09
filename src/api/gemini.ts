@@ -225,6 +225,25 @@ export async function createInteraction(body: Record<string, any>, options: { ti
     return res.json();
   };
 
+  // Video takes minutes, longer than Cloudflare keeps a silent connection open (~100 s → error 524).
+  // So start it in the background (Google answers at once with an id) and check back every few seconds.
+  const isVideo = body?.response_format?.type === 'video';
+  if (isVideo && body.stream !== true && body.background !== true && body.store !== false) {
+    let started: any = null;
+    try {
+      started = await send({ ...body, background: true });
+    } catch (e: any) {
+      // A 400 that names `background` means this request can't run in the background: run it the old way.
+      if (!(e instanceof GeminiApiError && e.status === 400 && /background/i.test(e.message))) throw e;
+    }
+    if (started) {
+      if (started.status === 'in_progress' || started.status === 'queued') {
+        return await waitForInteraction(started.id, Math.max(options.timeout || 0, VIDEO_WAIT_MS));
+      }
+      return finishedOrThrow(started);
+    }
+  }
+
   let hop = await send(body);
   if (body.background === true || body.stream === true) return hop;
 
@@ -254,6 +273,47 @@ export async function createInteraction(body: Record<string, any>, options: { ti
   if (hops.length === 1) return hop;
   const steps = hops.flatMap((h) => (Array.isArray(h?.steps) ? h.steps : []));
   return { ...hop, steps };
+}
+
+const VIDEO_WAIT_MS = 15 * 60 * 1000;
+const POLL_EVERY_MS = 5000;
+
+/** A finished interaction, or a GeminiApiError shaped like the old synchronous errors (status 400/429/500). */
+function finishedOrThrow(it: any): any {
+  if (!it || it.status === 'completed' || it.status === undefined) return it;
+  const err = it.error || {};
+  const message: string = err.message || `The video generation ended with status "${it.status}".`;
+  const code = String(err.code ?? err.status ?? '');
+  let status = Number(err.code) >= 400 && Number(err.code) < 600 ? Number(err.code) : 500;
+  if (/RESOURCE_EXHAUSTED|quota|spend/i.test(`${code} ${message}`)) status = 429;
+  else if (/INVALID_ARGUMENT|FAILED_PRECONDITION|blocked|safety|could not be processed/i.test(`${code} ${message}`)) status = 400;
+  throw new GeminiApiError(message, status, code || it.status, it);
+}
+
+/** Check a background interaction every few seconds until it is done. A short network hiccup is retried. */
+async function waitForInteraction(id: string, timeoutMs: number): Promise<any> {
+  const deadline = Date.now() + timeoutMs;
+  let networkFailures = 0;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, POLL_EVERY_MS));
+    let it: any;
+    try {
+      it = await getInteraction(id);
+      networkFailures = 0;
+    } catch (e: any) {
+      const transient = !(e instanceof GeminiApiError) || e.status >= 500 || e.status === 429;
+      if (transient && ++networkFailures <= 5) continue;
+      throw e;
+    }
+    if (it?.status === 'in_progress' || it?.status === 'queued') continue;
+    return finishedOrThrow(it);
+  }
+  throw new GeminiApiError(
+    `The video was still being made after ${Math.round(timeoutMs / 60000)} minutes (interaction ${id}).`,
+    504,
+    'TIMEOUT',
+    { id }
+  );
 }
 
 export async function getInteraction(id: string): Promise<any> {

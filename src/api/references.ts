@@ -447,7 +447,11 @@ export async function resolveReferenceImages(body: any): Promise<ResolvedImage[]
     if (!img) return;
     const key = (img.url || img.filename).toLowerCase();
     if (key && addedKeys.has(key)) return;
+    // Same picture under another name (e.g. a locked likeness picture that is also a preset): send it once.
+    const contentKey = img.base64 ? `bytes:${img.base64.length}:${img.base64.slice(0, 96)}:${img.base64.slice(-96)}` : '';
+    if (contentKey && addedKeys.has(contentKey)) return;
     if (key) addedKeys.add(key);
+    if (contentKey) addedKeys.add(contentKey);
     results.push(img);
   };
 
@@ -704,9 +708,24 @@ export async function resolveReferenceImages(body: any): Promise<ResolvedImage[]
     /emblem|medallion|embroider|chest|07de772c|07c026d1|1790924612634|rabbit_wayfinder_jump\.jpg|rabbit_face_crop\.jpg/i.test(
       `${ref.label || ''} ${ref.filename || ''} ${ref.imagePath || ''} ${ref.imageUrl || ''}`
     );
+  // A locked picture that shows a different belly symbol than the one chosen contradicts the
+  // instructions (e.g. the Wayfinder jump picture sent with the spiral symbol): leave it out.
+  const chosenIsWayfinder =
+    body.customEmblemType === 'vegvisir' ||
+    !!body.customEmblemName?.toLowerCase().includes('wayfinder') ||
+    !!body.customEmblemName?.toLowerCase().includes('eight');
+  const chosenIsSpiral = !chosenIsWayfinder && (body.customEmblemType === 'original_s' || body.customEmblemType === 'default');
+  const showsWrongSymbol = (ref: any) => {
+    if (isMorphActive) return false;
+    const text = `${ref.label || ''} ${ref.filename || ''} ${ref.imagePath || ''} ${ref.imageUrl || ''}`;
+    if (chosenIsSpiral) return /rabbit_wayfinder_jump\.jpg|rabbit_chest_emblem_clean|07c026d1/i.test(text);
+    if (chosenIsWayfinder) return /1790924612634|rabbit_original_emblem_medallion|07de772c/i.test(text);
+    return false;
+  };
   for (const ref of clientRefs) {
     if (!ref || ref.enabled === false) continue;
     if (isNoSymbolRequest(body) && showsSymbol(ref)) continue;
+    if (showsWrongSymbol(ref)) continue;
     if (promptMentionedClientRefs.includes(ref)) continue;
     const { role, desc } = getAssetRoleAndDesc(ref);
     const resolved = await resolveAnyRefAsset(ref, role, desc);
@@ -819,8 +838,10 @@ export async function resolveReferenceImages(body: any): Promise<ResolvedImage[]
     }
   } else {
     // Static Mode (Morphing completely disabled)
-    // Always provide Hero Character Action Leap & Face Crop for visual consistency
-    const leapPose = await resolveImageFile('public/assets/aistudio/1790924612634-1_cd314286.jpg', 'Hero Character: Green Plush Rabbit Doll Body & Proportions', '1790924612634-1_cd314286.jpg', 'preset_character_master');
+    // Always provide Hero Character Action Leap & Face Crop for visual consistency.
+    // The leap picture must show the chosen symbol: Wayfinder jump for Wayfinder, spiral jump otherwise.
+    const leapFile = chosenIsWayfinder ? 'rabbit_wayfinder_jump.jpg' : '1790924612634-1_cd314286.jpg';
+    const leapPose = await resolveImageFile(`public/assets/aistudio/${leapFile}`, 'Hero Character: Green Plush Rabbit Doll Body & Proportions', leapFile, 'preset_character_master');
     if (leapPose) {
       leapPose.role = 'Hero Character: Green Plush Rabbit Doll Body & Apple-Green Fleece Proportions';
       addUnique(leapPose);

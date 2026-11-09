@@ -196,6 +196,7 @@ The following ${resolvedImages.length} reference images are attached in order in
     logRecord.status = 'failed';
     logRecord.durationMs = Date.now() - startTime;
     logRecord.geminiInteraction = {
+      interactionId: (apiErr?.body as any)?.id,
       model: 'gemini-omni-1.2-flash',
       hasOutputVideo: false,
       error: {
@@ -528,7 +529,7 @@ The following ${resolvedImages.length} reference images are attached in order in
     logRecord.status = 'failed';
     logRecord.durationMs = Date.now() - startTime;
     logRecord.geminiInteraction = {
-      interactionId: previousInteractionId,
+      interactionId: (apiErr?.body as any)?.id || previousInteractionId,
       model: 'gemini-omni-1.2-flash',
       hasOutputVideo: false,
       error: {
