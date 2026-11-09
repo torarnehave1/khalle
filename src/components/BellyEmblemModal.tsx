@@ -18,7 +18,7 @@ import {
 export interface BellyEmblemConfig {
   id: string;
   name: string;
-  type: 'morph' | 'vegvisir' | 'original_s' | 'default' | 'custom';
+  type: 'morph' | 'vegvisir' | 'original_s' | 'default' | 'custom' | 'none';
   imagePath?: string;
   imageBase64?: string;
   imageUrl?: string;
@@ -57,6 +57,20 @@ The character's oval light-pink fleece belly patch features his authentic origin
 1. An oval white felt medallion badge with a stitched dark-blue outer border ring.
 2. Inside the oval badge are two interlocking blue spiral swirls that curve together and meet at a central vortex.
 3. DO NOT draw any compass, runes, staves, or multi-spoke symbols. Keep the original oval spiral medallion throughout the entire video.`;
+
+export const NO_SYMBOL_DIRECTIVE = `[PLAIN BELLY - NO SYMBOL]:
+The character's oval light-pink fleece belly patch is completely plain: soft pink fleece with no emblem, badge, patch, embroidery, logo, letter, rune or drawing on it, from start to finish.`;
+
+export const NO_SYMBOL_EMBLEM: BellyEmblemConfig = {
+  id: 'emblem-none',
+  name: 'No symbol (plain belly)',
+  type: 'none',
+  imagePath: '/assets/aistudio/rabbit_face_crop_no_symbol.jpg',
+  colorName: 'Plain pink',
+  colorHex: '#f9a8d4',
+  badgeLabel: 'PLAIN BELLY',
+  directive: NO_SYMBOL_DIRECTIVE,
+};
 
 export const PRESET_EMBLEMS: BellyEmblemConfig[] = [
   {
@@ -101,6 +115,7 @@ export const PRESET_EMBLEMS: BellyEmblemConfig[] = [
     endSymbolName: 'Authentic 8-Spoke Blueprint (image_07c026d1.png)',
     directive: MORPH_DIRECTIVE,
   },
+  NO_SYMBOL_EMBLEM,
 ];
 
 interface BellyEmblemModalProps {

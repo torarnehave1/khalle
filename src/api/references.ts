@@ -182,7 +182,16 @@ export function isTransformationRequest(body: any): boolean {
   return false;
 }
 
+export const isNoSymbolRequest = (body: any): boolean => body?.customEmblemType === 'none';
+
 export function getCharacterDirective(body: any, resolvedImages?: ResolvedImage[]): string {
+  if (isNoSymbolRequest(body)) {
+    return `[STRICT CHARACTER IDENTITY & PLAIN BELLY]:
+The subject MUST be the green plush rabbit doll shown in the reference images.
+1. FACE & HEAD: Apple-green fleece; tall upright floppy ears; open wide grin with single white buck tooth; light-pink snout; pink scarf; red boots.
+2. PLAIN BELLY: The oval light-pink fleece belly patch is completely plain soft pink fleece throughout the ENTIRE video clip, exactly as in the reference images.
+3. ABSOLUTE PROHIBITION: DO NOT draw, stitch or add any emblem, badge, patch, embroidery, spiral, rune, compass, logo, letter or symbol on the belly or chest at any moment.`;
+  }
   const isMorph = isTransformationRequest(body);
 
   if (isMorph) {
@@ -465,7 +474,7 @@ export async function resolveReferenceImages(body: any): Promise<ResolvedImage[]
     (promptText.includes('first reference image') && promptText.includes('second reference image')) ||
     (promptText.includes('image_07de772c') && promptText.includes('image_07c026d1'));
 
-  const isMorphActive = isTransformationRequest(body) || promptDescribesDualEmblems;
+  const isMorphActive = !isNoSymbolRequest(body) && (isTransformationRequest(body) || promptDescribesDualEmblems);
 
   // =========================================================================
   // PRIORITY 1: USER-SPECIFIED TARGET ASSETS (PROMPT-NAMED, CUSTOM PICTURES, UPLOADS)
@@ -691,8 +700,13 @@ export async function resolveReferenceImages(body: any): Promise<ResolvedImage[]
   }
 
   // 1C. Other Client Multi-Reference Assets (Custom uploads, props, clothing, companions)
+  const showsSymbol = (ref: any) =>
+    /emblem|medallion|embroider|chest|07de772c|07c026d1|1790924612634|rabbit_wayfinder_jump\.jpg|rabbit_face_crop\.jpg/i.test(
+      `${ref.label || ''} ${ref.filename || ''} ${ref.imagePath || ''} ${ref.imageUrl || ''}`
+    );
   for (const ref of clientRefs) {
     if (!ref || ref.enabled === false) continue;
+    if (isNoSymbolRequest(body) && showsSymbol(ref)) continue;
     if (promptMentionedClientRefs.includes(ref)) continue;
     const { role, desc } = getAssetRoleAndDesc(ref);
     const resolved = await resolveAnyRefAsset(ref, role, desc);
@@ -788,6 +802,20 @@ export async function resolveReferenceImages(body: any): Promise<ResolvedImage[]
     if (faceRef) {
       faceRef.role = 'Character Facial Features: Single Buck Tooth & Tall Upright Floppy Ears';
       addUnique(faceRef);
+    }
+  } else if (isNoSymbolRequest(body)) {
+    // No symbol: only plain-belly pictures of the rabbit, and no emblem reference at all.
+    // Skip any the client already sent, so the same picture isn't attached twice.
+    const alreadySent = (name: string) => results.some((r) => (r.previewUrl || '').includes(name));
+    const plainBody = await resolveImageFile('public/assets/aistudio/rabbit_wayfinder_jump_no_symbol.jpg', 'Hero Character: Green Plush Rabbit Doll Body with Plain Pink Belly', 'rabbit_wayfinder_jump_no_symbol.jpg', 'preset_character_master');
+    if (plainBody && !alreadySent('rabbit_wayfinder_jump_no_symbol')) {
+      plainBody.role = 'Hero Character: Green Plush Rabbit Doll Body & Plain Pink Belly (no symbol)';
+      addUnique(plainBody);
+    }
+    const plainFace = await resolveImageFile('public/assets/aistudio/rabbit_face_crop_no_symbol.jpg', 'Character Facial Features: Single White Buck Tooth & Upright Floppy Ears', 'rabbit_face_crop_no_symbol.jpg', 'preset_face');
+    if (plainFace && !alreadySent('rabbit_face_crop_no_symbol')) {
+      plainFace.role = 'Character Facial Features: Single White Buck Tooth & Tall Upright Floppy Ears, Plain Belly';
+      addUnique(plainFace);
     }
   } else {
     // Static Mode (Morphing completely disabled)

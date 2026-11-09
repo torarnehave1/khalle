@@ -96,6 +96,7 @@ import { generateTransition } from './api/transition';
 import {
   BellyEmblemModal,
   BellyEmblemConfig,
+  NO_SYMBOL_EMBLEM,
   PRESET_EMBLEMS,
 } from './components/BellyEmblemModal';
 import {
@@ -224,6 +225,31 @@ export const ORIGINAL_MEDALLION_REFERENCE_ASSETS: ReferenceAngle[] = [
     label: 'Face Close-Up & Buck Tooth',
     tagline: 'Tall upright ears, single buck tooth, open grin',
     imagePath: '/assets/aistudio/rabbit_face_crop.jpg',
+    enabled: true,
+    isDefault: true,
+    icon: '🦷',
+  },
+];
+
+// "No symbol": only pictures of the rabbit with a plain belly, so nothing shows Gemini a symbol.
+export const NO_SYMBOL_RABBIT_PATH = '/assets/aistudio/rabbit_wayfinder_jump_no_symbol.jpg';
+export const NO_SYMBOL_REFERENCE_ASSETS: ReferenceAngle[] = [
+  {
+    id: 'ref-master-jump',
+    category: 'character',
+    label: 'Master Action Jump',
+    tagline: 'Full leap, plain pink belly with no symbol',
+    imagePath: NO_SYMBOL_RABBIT_PATH,
+    enabled: true,
+    isDefault: true,
+    icon: '🐰',
+  },
+  {
+    id: 'ref-face-grin',
+    category: 'character',
+    label: 'Face Close-Up & Buck Tooth',
+    tagline: 'Tall upright ears, single buck tooth, open grin, plain belly',
+    imagePath: '/assets/aistudio/rabbit_face_crop_no_symbol.jpg',
     enabled: true,
     isDefault: true,
     icon: '🦷',
@@ -757,7 +783,11 @@ export default function App() {
 
   const handleSelectEmblem = (emblem: BellyEmblemConfig) => {
     setActiveEmblem(emblem);
-    if (emblem.id === 'emblem-morph' || emblem.type === 'morph') {
+    if (emblem.type === 'none') {
+      setIsMorphingEnabled(false);
+      if (isDefaultImage) setSelectedImage(NO_SYMBOL_RABBIT_PATH);
+      setReferenceAssets(NO_SYMBOL_REFERENCE_ASSETS);
+    } else if (emblem.id === 'emblem-morph' || emblem.type === 'morph') {
       setIsMorphingEnabled(true);
       if (isDefaultImage) {
         setSelectedImage('/assets/aistudio/1790924612634-1_cd314286.jpg');
@@ -2987,7 +3017,7 @@ export default function App() {
               </div>
 
               {/* Custom Belly Symbol / Emblem Studio Card */}
-              <div className={`p-2.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all ${
+              <div className={`p-2.5 rounded-xl border flex flex-col gap-2.5 transition-all ${
                 isMorphingEnabled || activeEmblem.id === 'emblem-morph'
                   ? 'bg-cyan-950/40 border-cyan-500/40'
                   : 'bg-slate-950/90 border-emerald-500/30'
@@ -3038,6 +3068,10 @@ export default function App() {
                         <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-amber-950 text-amber-300 border border-amber-600/50 font-bold animate-pulse">
                           METAMORPHOSIS ACTIVE
                         </span>
+                      ) : activeEmblem.type === 'none' ? (
+                        <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-pink-950 text-pink-200 border border-pink-600/50 font-semibold">
+                          PLAIN BELLY
+                        </span>
                       ) : (
                         <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-300 border border-emerald-600/50 font-semibold flex items-center gap-1">
                           <span>🔒</span>
@@ -3048,6 +3082,8 @@ export default function App() {
                     <p className="text-[10px] text-slate-400 line-clamp-1 mt-0.5">
                       {isMorphingEnabled || activeEmblem.id === 'emblem-morph'
                         ? 'Metamorphosis is ON: Symbol glows & unwinds during video. Click "Turn OFF Morphing" so your prompts run without symbol overrides.'
+                        : activeEmblem.type === 'none'
+                        ? 'No symbol on the belly • only plain-belly pictures are sent to Gemini'
                         : activeEmblem.id === 'emblem-vegvisir'
                         ? 'Static 8-Stave Blueprint locked (image_07c026d1.png) • No morphing • Prompts have 100% priority'
                         : activeEmblem.id === 'emblem-original-medallion' || activeEmblem.id === 'emblem-original-s'
@@ -3059,7 +3095,7 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto">
+                <div className="flex flex-wrap items-center justify-end gap-1.5">
                   {isMorphingEnabled || activeEmblem.id === 'emblem-morph' ? (
                     <button
                       type="button"
@@ -3089,6 +3125,26 @@ export default function App() {
                     <Compass className="w-3.5 h-3.5 text-cyan-400" />
                     <span>Change Symbol</span>
                   </button>
+                  {activeEmblem.type === 'none' ? (
+                    <button
+                      type="button"
+                      onClick={handleToggleMorphingOff}
+                      className="px-2.5 py-1.5 bg-slate-900 hover:bg-emerald-950 text-slate-300 hover:text-emerald-200 border border-slate-700/60 hover:border-emerald-500/50 rounded-lg text-xs font-semibold shrink-0 transition-all flex items-center gap-1 cursor-pointer"
+                      title="Put the original spiral symbol back on the belly"
+                    >
+                      <span>Add symbol</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleSelectEmblem(NO_SYMBOL_EMBLEM)}
+                      className="px-2.5 py-1.5 bg-slate-900 hover:bg-pink-950 text-slate-300 hover:text-pink-200 border border-slate-700/60 hover:border-pink-500/50 rounded-lg text-xs font-semibold shrink-0 transition-all flex items-center gap-1 cursor-pointer"
+                      title="Plain pink belly: no symbol, and no symbol pictures sent to Gemini"
+                    >
+                      <X className="w-3.5 h-3.5 text-pink-400" />
+                      <span>No symbol</span>
+                    </button>
+                  )}
                 </div>
               </div>
 
