@@ -87,7 +87,7 @@ import { UploadSceneModal } from './components/UploadSceneModal';
 import { useStoryPersistence } from './lib/storyStore';
 import { useTrimmedPlayback } from './lib/trimPlayback';
 import { extensionChainSeconds, MAX_EXTENSION_CHAIN_SECONDS } from './lib/extensionChain';
-import { grabFrame } from './lib/frameGrab';
+import { clipDuration, grabFrame } from './lib/frameGrab';
 import { analyzeCut, type CutAnalysis } from './api/cutAnalysis';
 import { exportStory } from './lib/storyExport';
 import SceneEditBar from './components/SceneEditBar';
@@ -579,9 +579,25 @@ export interface GeneratedVideo {
   sceneNumber: number;
   interactionId?: string;
   previousInteractionId?: string;
+  /**
+   * Set once the clip of an extension has been checked: Gemini returns an extension as the whole
+   * chain from the first scene, so the scene starts playing where its own new part begins.
+   */
+  extensionTrimChecked?: boolean;
+  /** Measured length of the clip file in seconds (an extension's file is longer than its own part). */
+  clipSeconds?: number;
   /** Edit list: play only this part of the clip (seconds). The clip file itself is never cut. */
   trimStart?: number;
   trimEnd?: number;
+}
+
+/**
+ * Seconds a scene plays: its trimmed part of the clip. The clip's end is its measured length when
+ * known (an extension's file holds the whole chain), else the scene's duration label.
+ */
+function scenePlaySeconds(scene: GeneratedVideo): number {
+  const full = scene.clipSeconds ?? (parseInt(scene.duration || '', 10) || 5);
+  return Math.max(0, (scene.trimEnd ?? full) - (scene.trimStart ?? 0));
 }
 
 export default function App() {
@@ -633,6 +649,42 @@ export default function App() {
   // Latest history for handlers that finish after an await (a generation takes minutes).
   const videoHistoryRef = useRef<GeneratedVideo[]>([]);
   videoHistoryRef.current = videoHistory;
+
+  // Gemini returns an extended scene as the whole chain (scene 1 + 2 + … + the new part), so
+  // without this a story replays its earlier scenes. For every extension not yet checked, read
+  // the clip length and start playback where the new part begins (the file itself is kept).
+  // Scenes the user trimmed or split are left alone; resetting a trim later is respected.
+  const extensionTrimInFlight = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    for (const scene of videoHistory) {
+      if (
+        !scene.previousInteractionId ||
+        scene.extensionTrimChecked ||
+        scene.trimStart !== undefined ||
+        scene.trimEnd !== undefined ||
+        !scene.videoUrl ||
+        extensionTrimInFlight.current.has(scene.id)
+      ) {
+        continue;
+      }
+      extensionTrimInFlight.current.add(scene.id);
+      const ownSeconds = parseInt(String(scene.duration || '0'), 10) || 0;
+      clipDuration(scene.videoUrl)
+        .then((total) => {
+          const startAt = Number.isFinite(total) && ownSeconds > 0 && total > ownSeconds + 0.5 ? total - ownSeconds : undefined;
+          const patch = (v: GeneratedVideo): GeneratedVideo =>
+            v.id === scene.id && v.trimStart === undefined && v.trimEnd === undefined
+              ? { ...v, trimStart: startAt, extensionTrimChecked: true, clipSeconds: Number.isFinite(total) ? total : undefined }
+              : v;
+          setVideoHistory((prev) => prev.map(patch));
+          setCurrentVideo((cur) => (cur ? patch(cur) : cur));
+        })
+        .catch(() => {
+          /* clip not readable now (e.g. still downloading); try again on the next change */
+        })
+        .finally(() => extensionTrimInFlight.current.delete(scene.id));
+    }
+  }, [videoHistory]);
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
   const [isLooping, setIsLooping] = useState<boolean>(true);
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
@@ -1260,14 +1312,10 @@ export default function App() {
     return scenes;
   }, [currentVideo, videoHistory]);
 
-  const totalStorySeconds = useMemo(() => {
-    // Each scene's own length (its duration label, e.g. "12s"), minus any trim.
-    return currentStoryScenes.reduce((sum, scene) => {
-      const full = parseInt(scene.duration || '', 10) || 5;
-      const end = scene.trimEnd ?? full;
-      return sum + Math.max(0, end - (scene.trimStart ?? 0));
-    }, 0);
-  }, [currentStoryScenes]);
+  const totalStorySeconds = useMemo(
+    () => currentStoryScenes.reduce((sum, scene) => sum + scenePlaySeconds(scene), 0),
+    [currentStoryScenes]
+  );
 
   // Real-time cost calculation for Gemini Omni Flash based on duration and resolution
   const estimatedCost = useMemo(() => {
@@ -4862,10 +4910,7 @@ export default function App() {
               )}
               {stories.map(({ storyId, scenes }) => {
                 const isOpen = !!currentVideo && (currentVideo.storyId || currentVideo.id) === storyId;
-                const seconds = scenes.reduce((sum, sc) => {
-                  const full = parseInt(sc.duration || '', 10) || 5;
-                  return sum + Math.max(0, (sc.trimEnd ?? full) - (sc.trimStart ?? 0));
-                }, 0);
+                const seconds = scenes.reduce((sum, sc) => sum + scenePlaySeconds(sc), 0);
                 return (
                   <section key={storyId} className={`flex flex-col gap-2 rounded-xl p-2 ${isOpen ? 'bg-emerald-950/20 ring-1 ring-emerald-700/50' : ''}`}>
                     <div className="flex items-center gap-2 text-[11px] text-slate-400 min-w-0">
@@ -4893,7 +4938,12 @@ export default function App() {
                   >
                     <div className="relative rounded-lg overflow-hidden bg-slate-900 h-24 flex items-center justify-center">
                       <video
+                        key={`${vid.id}-${vid.trimStart ?? 0}`}
                         src={vid.videoUrl}
+                        preload="metadata"
+                        onLoadedMetadata={(e) => {
+                          if (vid.trimStart) e.currentTarget.currentTime = vid.trimStart;
+                        }}
                         className="h-full w-full object-cover group-hover:scale-105 transition-transform"
                       />
                       <div className="absolute inset-0 bg-slate-950/20 group-hover:bg-transparent transition-colors" />
@@ -4996,7 +5046,14 @@ export default function App() {
               {/* Current Scene Context Card */}
               <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 flex items-start gap-3">
                 <div className="relative w-20 h-16 rounded-lg overflow-hidden bg-slate-900 shrink-0 border border-slate-800">
-                  <video src={sceneToCorrect.videoUrl} className="w-full h-full object-cover" />
+                  <video
+                    src={sceneToCorrect.videoUrl}
+                    preload="metadata"
+                    onLoadedMetadata={(e) => {
+                      if (sceneToCorrect.trimStart) e.currentTarget.currentTime = sceneToCorrect.trimStart;
+                    }}
+                    className="w-full h-full object-cover"
+                  />
                   <div className="absolute top-1 left-1 px-1 py-0.2 rounded bg-slate-950/80 text-[8px] font-mono text-emerald-400">
                     Take
                   </div>

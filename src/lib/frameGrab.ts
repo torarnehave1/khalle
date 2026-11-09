@@ -90,3 +90,29 @@ export async function grabThumbnails(videoUrl: string, times: number[], height =
   v.load();
   return out;
 }
+
+/** Length of a clip in seconds, read from its metadata. */
+export async function clipDuration(videoUrl: string): Promise<number> {
+  const v = document.createElement('video');
+  v.muted = true;
+  v.preload = 'metadata';
+  v.crossOrigin = 'anonymous';
+  v.src = videoUrl;
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Timed out reading the clip length.')), 20000);
+      v.onloadedmetadata = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      v.onerror = () => {
+        clearTimeout(timer);
+        reject(new Error('The clip could not be read.'));
+      };
+    });
+    return Number.isFinite(v.duration) ? v.duration : NaN;
+  } finally {
+    v.removeAttribute('src');
+    v.load();
+  }
+}
