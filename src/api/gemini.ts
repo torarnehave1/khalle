@@ -281,7 +281,8 @@ const POLL_EVERY_MS = 5000;
 /** A finished interaction, or a GeminiApiError shaped like the old synchronous errors (status 400/429/500). */
 function finishedOrThrow(it: any): any {
   if (!it || it.status === 'completed' || it.status === undefined) return it;
-  const err = it.error || {};
+  // Google puts the reason in `errors` (a list) for failed interactions; older shapes use `error`.
+  const err = (Array.isArray(it.errors) && it.errors[0]) || it.error || {};
   const message: string = err.message || `The video generation ended with status "${it.status}".`;
   const code = String(err.code ?? err.status ?? '');
   let status = Number(err.code) >= 400 && Number(err.code) < 600 ? Number(err.code) : 500;

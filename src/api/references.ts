@@ -489,7 +489,10 @@ export async function resolveReferenceImages(body: any): Promise<ResolvedImage[]
 
   // The start picture the user uploaded goes first: the video opens on it.
   // (The built-in start rabbit is not sent here; the locked likeness pictures already show it.)
-  if (typeof body.imageBase64 === 'string') {
+  // A new scene made from the previous scene's last frame already sends that frame as
+  // scene_start_frame (named in the prompt), so it isn't added a second time here.
+  const hasContinuityStart = clientRefs.some((r) => r?.category === 'continuity_frame' && r?.label === 'scene_start_frame');
+  if (typeof body.imageBase64 === 'string' && !hasContinuityStart) {
     const m = body.imageBase64.match(/^data:([^;]+);base64,(.+)$/);
     if (m) {
       addUnique({

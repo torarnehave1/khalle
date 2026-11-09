@@ -86,6 +86,7 @@ import {
 import { UploadSceneModal } from './components/UploadSceneModal';
 import { useStoryPersistence } from './lib/storyStore';
 import { useTrimmedPlayback } from './lib/trimPlayback';
+import { extensionChainSeconds, MAX_EXTENSION_CHAIN_SECONDS } from './lib/extensionChain';
 import { grabFrame } from './lib/frameGrab';
 import { analyzeCut, type CutAnalysis } from './api/cutAnalysis';
 import { exportStory } from './lib/storyExport';
@@ -1807,8 +1808,16 @@ export default function App() {
       const followingScene = parentIdx !== -1 ? storyScenes[parentIdx + 1] : undefined;
       // The stored Gemini interaction ends where the clip ends. Continue through it only when the
       // parent plays to its real end; otherwise start a fresh generation from the cut frame.
-      const continueInteraction = !!parentVideo.interactionId && parentVideo.trimEnd === undefined;
-      const sceneSeconds = Math.min(continueInteraction ? 10 : 15, Math.max(3, Math.round(newSceneSeconds)));
+      // Gemini allows at most 30 s in one chain of extensions (the first clip plus every extension).
+      // Past that it fails with INVALID_ARGUMENT, so a longer story starts a fresh generation from the
+      // last frame instead. The chain is followed back through previousInteractionId.
+      const chainSeconds = extensionChainSeconds(parentVideo, videoHistoryRef.current);
+      const wantedSeconds = Math.max(3, Math.round(newSceneSeconds));
+      const continueInteraction =
+        !!parentVideo.interactionId &&
+        parentVideo.trimEnd === undefined &&
+        chainSeconds + Math.min(10, wantedSeconds) <= MAX_EXTENSION_CHAIN_SECONDS;
+      const sceneSeconds = Math.min(continueInteraction ? 10 : 15, wantedSeconds);
 
       setProgressPercent(8);
       setProgressStep('Grabbing the frames on each side of the new scene...');
