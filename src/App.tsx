@@ -244,16 +244,6 @@ export const NO_SYMBOL_REFERENCE_ASSETS: ReferenceAngle[] = [
     isDefault: true,
     icon: '🐰',
   },
-  {
-    id: 'ref-face-grin',
-    category: 'character',
-    label: 'Face Close-Up & Buck Tooth',
-    tagline: 'Tall upright ears, single buck tooth, open grin, plain belly',
-    imagePath: '/assets/aistudio/rabbit_face_crop_no_symbol.jpg',
-    enabled: true,
-    isDefault: true,
-    icon: '🦷',
-  },
 ];
 
 export const DEFAULT_REFERENCE_ASSETS = TRANSFORMATION_REFERENCE_ASSETS;
@@ -595,7 +585,7 @@ export interface GeneratedVideo {
 
 export default function App() {
   // Image selection state
-  const [selectedImage, setSelectedImage] = useState<string>(WAYFINDER_RABBIT_PATH);
+  const [selectedImage, setSelectedImage] = useState<string>(NO_SYMBOL_RABBIT_PATH);
   const [isDefaultImage, setIsDefaultImage] = useState<boolean>(true);
   const [imageMimeType, setImageMimeType] = useState<string>('image/jpeg');
 
@@ -705,7 +695,7 @@ export default function App() {
   );
 
   // Production Cast, Props, Equipment & Wardrobe Multi-Select Studio
-  const [referenceAssets, setReferenceAssets] = useState<ReferenceAngle[]>(WAYFINDER_REFERENCE_ASSETS);
+  const [referenceAssets, setReferenceAssets] = useState<ReferenceAngle[]>(NO_SYMBOL_REFERENCE_ASSETS);
   const [activeStylistItems, setActiveStylistItems] = useState<StylistItem[]>([]);
   const [audioMode, setAudioMode] = useState<'with_sound' | 'silent'>('with_sound');
   const [showStylistModal, setShowStylistModal] = useState<boolean>(false);
@@ -777,7 +767,7 @@ export default function App() {
   };
 
   // Custom Belly Emblem / Symbol Studio state
-  const [activeEmblem, setActiveEmblem] = useState<BellyEmblemConfig>(PRESET_EMBLEMS[0]);
+  const [activeEmblem, setActiveEmblem] = useState<BellyEmblemConfig>(NO_SYMBOL_EMBLEM);
   const [isMorphingEnabled, setIsMorphingEnabled] = useState<boolean>(false);
   const [showEmblemModal, setShowEmblemModal] = useState<boolean>(false);
 
@@ -1416,7 +1406,7 @@ export default function App() {
 
   // Reset to default rabbit
   const handleResetToRabbit = () => {
-    setSelectedImage(activeEmblem?.id === 'emblem-vegvisir' ? WAYFINDER_RABBIT_PATH : DEFAULT_RABBIT_PATH);
+    setSelectedImage(activeEmblem?.type === 'none' ? NO_SYMBOL_RABBIT_PATH : activeEmblem?.id === 'emblem-vegvisir' ? WAYFINDER_RABBIT_PATH : DEFAULT_RABBIT_PATH);
     setIsDefaultImage(true);
     setImageMimeType('image/jpeg');
     setSelectedSeason('spring');
@@ -1560,7 +1550,9 @@ export default function App() {
 
       if (isDefaultImage) {
         payload.imagePath =
-          activeEmblem?.id === 'emblem-vegvisir'
+          activeEmblem?.type === 'none'
+            ? NO_SYMBOL_RABBIT_PATH
+            : activeEmblem?.id === 'emblem-vegvisir'
             ? WAYFINDER_RABBIT_PATH
             : '/assets/aistudio/image_8c4d4a47.png';
         payload.imageMimeType = 'image/jpeg';
@@ -2156,7 +2148,9 @@ export default function App() {
         };
         if (isDefaultImage) {
           payload.imagePath =
-            activeEmblem?.id === 'emblem-vegvisir'
+            activeEmblem?.type === 'none'
+              ? NO_SYMBOL_RABBIT_PATH
+              : activeEmblem?.id === 'emblem-vegvisir'
               ? WAYFINDER_RABBIT_PATH
               : '/assets/aistudio/image_8c4d4a47.png';
           payload.imageMimeType = 'image/jpeg';

@@ -823,18 +823,13 @@ export async function resolveReferenceImages(body: any): Promise<ResolvedImage[]
       addUnique(faceRef);
     }
   } else if (isNoSymbolRequest(body)) {
-    // No symbol: only plain-belly pictures of the rabbit, and no emblem reference at all.
+    // No symbol: only the one plain-belly picture of the rabbit, and no emblem reference at all.
     // Skip any the client already sent, so the same picture isn't attached twice.
     const alreadySent = (name: string) => results.some((r) => (r.previewUrl || '').includes(name));
     const plainBody = await resolveImageFile('public/assets/aistudio/rabbit_wayfinder_jump_no_symbol.jpg', 'Hero Character: Green Plush Rabbit Doll Body with Plain Pink Belly', 'rabbit_wayfinder_jump_no_symbol.jpg', 'preset_character_master');
     if (plainBody && !alreadySent('rabbit_wayfinder_jump_no_symbol')) {
       plainBody.role = 'Hero Character: Green Plush Rabbit Doll Body & Plain Pink Belly (no symbol)';
       addUnique(plainBody);
-    }
-    const plainFace = await resolveImageFile('public/assets/aistudio/rabbit_face_crop_no_symbol.jpg', 'Character Facial Features: Single White Buck Tooth & Upright Floppy Ears', 'rabbit_face_crop_no_symbol.jpg', 'preset_face');
-    if (plainFace && !alreadySent('rabbit_face_crop_no_symbol')) {
-      plainFace.role = 'Character Facial Features: Single White Buck Tooth & Tall Upright Floppy Ears, Plain Belly';
-      addUnique(plainFace);
     }
   } else {
     // Static Mode (Morphing completely disabled)
