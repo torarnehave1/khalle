@@ -707,7 +707,11 @@ export default function App() {
   // Length of a new scene added with + AI / Extend: 5–15 s (10 s max when continuing a clip).
   const [newSceneSeconds, setNewSceneSeconds] = useState<number>(5);
   // Smooth-transition panel: the two scenes the cut sits between.
-  const [transitionPair, setTransitionPair] = useState<{ from: GeneratedVideo; to: GeneratedVideo } | null>(null);
+  // from = null: a new scene before `to` (the first scene), starting on `startImage`.
+  const [transitionPair, setTransitionPair] = useState<{ from: GeneratedVideo | null; to: GeneratedVideo; startImage?: string } | null>(null);
+  // Drag and drop on the storyboard: the scene being dragged and where it would land.
+  const [dragSceneId, setDragSceneId] = useState<string | null>(null);
+  const [dropIndex, setDropIndex] = useState<number | null>(null);
   const [isMakingTransition, setIsMakingTransition] = useState<boolean>(false);
   const [transitionError, setTransitionError] = useState<string | null>(null);
   // After a scene is corrected, the next scene still follows the old take. Offer a transition.
@@ -1017,33 +1021,34 @@ export default function App() {
     tempVideo.src = videoBlobUrl;
   };
 
-  const handleMoveScene = (sceneId: string, direction: 'left' | 'right') => {
-    if (!currentVideo) return;
-    const storyId = currentVideo.storyId;
-    const storyScenes = videoHistory
+  // Move a scene so it lands at `toIndex` (0-based, counted before the move) in its story.
+  const moveSceneTo = (sceneId: string, toIndex: number) => {
+    const history = videoHistoryRef.current;
+    const scene = history.find((v) => v.id === sceneId);
+    if (!scene) return;
+    const storyId = scene.storyId;
+    const storyScenes = history
       .filter((v) => v.storyId === storyId)
       .sort((a, b) => (a.sceneNumber || 1) - (b.sceneNumber || 1));
+    const before = storyScenes.map((s) => s.id).join('|');
+    const from = storyScenes.findIndex((s) => s.id === sceneId);
+    if (from === -1) return;
+    const target = Math.max(0, Math.min(storyScenes.length, toIndex));
+    const [moved] = storyScenes.splice(from, 1);
+    storyScenes.splice(target > from ? target - 1 : target, 0, moved);
+    const renumbered = storyScenes.map((s, i) => ({ ...s, sceneNumber: i + 1 }));
+    if (renumbered.map((s) => s.id).join('|') === before) return;
+    const next = [...renumbered, ...history.filter((v) => v.storyId !== storyId)];
+    videoHistoryRef.current = next;
+    setVideoHistory(next);
+    setCurrentVideo((cur) => (cur ? renumbered.find((s) => s.id === cur.id) || cur : cur));
+  };
 
-    const idx = storyScenes.findIndex((s) => s.id === sceneId);
-    if (idx === -1) return;
-
-    if (direction === 'left' && idx > 0) {
-      const temp = storyScenes[idx];
-      storyScenes[idx] = storyScenes[idx - 1];
-      storyScenes[idx - 1] = temp;
-    } else if (direction === 'right' && idx < storyScenes.length - 1) {
-      const temp = storyScenes[idx];
-      storyScenes[idx] = storyScenes[idx + 1];
-      storyScenes[idx + 1] = temp;
-    }
-
-    const renumbered = storyScenes.map((s, i) => ({
-      ...s,
-      sceneNumber: i + 1,
-    }));
-
-    const otherStories = videoHistory.filter((v) => v.storyId !== storyId);
-    setVideoHistory([...renumbered, ...otherStories]);
+  const handleMoveScene = (sceneId: string, direction: 'left' | 'right') => {
+    const scene = videoHistoryRef.current.find((v) => v.id === sceneId);
+    if (!scene) return;
+    const idx = (scene.sceneNumber || 1) - 1;
+    moveSceneTo(sceneId, direction === 'left' ? idx - 1 : idx + 2);
   };
 
   const handleToggleReferenceAsset = (id: string) => {
@@ -2459,7 +2464,7 @@ export default function App() {
 
   // Generate a clip from the last frame of one scene to the first frame of the next and put it between them.
   const handleCreateTransition = async (
-    from: GeneratedVideo,
+    from: GeneratedVideo | null,
     to: GeneratedVideo,
     args: { firstFrame: string; lastFrame: string; prompt: string; seconds: number }
   ) => {
@@ -2471,27 +2476,32 @@ export default function App() {
         lastFrame: args.lastFrame,
         prompt: args.prompt,
         seconds: args.seconds,
-        aspectRatio: from.aspectRatio === '16:9' ? '16:9' : '9:16',
+        aspectRatio: (from || to).aspectRatio === '16:9' ? '16:9' : '9:16',
         resolution,
       });
+      const base = from || to;
       const transition: GeneratedVideo = {
         id: result.interactionId || `transition-${Date.now()}`,
         videoUrl: result.videoUrl,
-        prompt: `Transition: ${args.prompt}`,
-        aspectRatio: from.aspectRatio,
+        prompt: from ? `Transition: ${args.prompt}` : args.prompt,
+        aspectRatio: base.aspectRatio,
         duration: result.duration,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        sourceImage: from.sourceImage,
-        season: from.season,
-        weather: from.weather,
+        sourceImage: base.sourceImage,
+        season: base.season,
+        weather: base.weather,
+        cost: estimatedCost.display,
         engine: 'omni',
-        storyId: from.storyId || from.id,
-        sceneNumber: (from.sceneNumber || 1) + 1,
+        storyId: base.storyId || base.id,
+        sceneNumber: from ? (from.sceneNumber || 1) + 1 : to.sceneNumber || 1,
         interactionId: result.interactionId,
       };
       setSessionCost((prev) => prev + (resolution === '1080p' ? 0.6 : 0.35));
-      const fromNow = videoHistoryRef.current.find((v) => v.id === from.id);
-      const placed = fromNow ? replaceInStory(fromNow.id, [fromNow, transition]) : undefined;
+      // A transition goes right after `from`; a new opening scene goes right before `to`.
+      const anchor = videoHistoryRef.current.find((v) => v.id === (from || to).id);
+      const placed = anchor
+        ? replaceInStory(anchor.id, from ? [anchor, transition] : [transition, anchor])
+        : undefined;
       if (!placed) setVideoHistory((prev) => [transition, ...prev]);
       setCurrentVideo(placed?.find((v) => v.id === transition.id) || transition);
       setCompareMode('video');
@@ -4588,11 +4598,42 @@ export default function App() {
                         </button>
                       )}
                       <div
+                        draggable={currentStoryScenes.length > 1}
+                        onDragStart={(e) => {
+                          setDragSceneId(scene.id);
+                          e.dataTransfer.effectAllowed = 'move';
+                          e.dataTransfer.setData('text/plain', scene.id);
+                        }}
+                        onDragOver={(e) => {
+                          if (!dragSceneId) return;
+                          e.preventDefault();
+                          const box = e.currentTarget.getBoundingClientRect();
+                          setDropIndex(e.clientX < box.left + box.width / 2 ? idx : idx + 1);
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          if (dragSceneId && dropIndex !== null) moveSceneTo(dragSceneId, dropIndex);
+                          setDragSceneId(null);
+                          setDropIndex(null);
+                        }}
+                        onDragEnd={() => {
+                          setDragSceneId(null);
+                          setDropIndex(null);
+                        }}
                         onClick={() => {
                           setCurrentVideo(scene);
                           setCompareMode('video');
                         }}
+                        title={currentStoryScenes.length > 1 ? 'Drag to move this scene' : undefined}
                         className={`shrink-0 w-48 p-2.5 rounded-xl border transition-all cursor-pointer flex flex-col gap-1.5 group relative ${
+                          dragSceneId === scene.id ? 'opacity-40 ' : ''
+                        }${
+                          dragSceneId && dragSceneId !== scene.id && dropIndex === idx
+                            ? 'shadow-[-6px_0_0_0_rgb(52,211,153)] '
+                            : dragSceneId && dragSceneId !== scene.id && dropIndex === idx + 1
+                            ? 'shadow-[6px_0_0_0_rgb(52,211,153)] '
+                            : ''
+                        }${
                           isSelected
                             ? 'bg-emerald-950/50 border-emerald-500 shadow-md shadow-emerald-500/20 ring-1 ring-emerald-500/50'
                             : 'bg-slate-950 border-slate-800 hover:border-slate-700 hover:bg-slate-900/60'
@@ -4676,48 +4717,70 @@ export default function App() {
                             </span>
                           </div>
 
-                          {/* Quick Insert Video Before / After */}
-                          <div className="flex items-center gap-1">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setCurrentVideo(scene);
-                                setCompareMode('video');
-                                setShowExtensionDrawer(true);
-                              }}
-                              title={
-                                idx < currentStoryScenes.length - 1
-                                  ? 'Generate a new AI scene between this scene and the next'
-                                  : 'Generate a new AI scene after this one'
-                              }
-                              className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-950/60 hover:bg-emerald-900 text-emerald-300 border border-emerald-700/40 font-medium transition-colors cursor-pointer"
-                            >
-                              + AI
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openUploadSceneModal(scene, 'before');
-                              }}
-                              title="Upload video clip to insert BEFORE this scene"
-                              className="text-[9px] px-1.5 py-0.5 rounded bg-blue-950/60 hover:bg-blue-900 text-blue-300 border border-blue-700/40 font-medium transition-colors cursor-pointer"
-                            >
-                              + Before
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openUploadSceneModal(scene, 'after');
-                              }}
-                              title="Upload video clip to insert AFTER this scene"
-                              className="text-[9px] px-1.5 py-0.5 rounded bg-blue-950/60 hover:bg-blue-900 text-blue-300 border border-blue-700/40 font-medium transition-colors cursor-pointer"
-                            >
-                              + After
-                            </button>
-                          </div>
+                        </div>
+
+                        {/* Add a scene before / after this one: AI-made or an uploaded clip */}
+                        <div className="grid grid-cols-2 gap-1">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setTransitionError(null);
+                              setTransitionPair(
+                                idx > 0
+                                  ? { from: currentStoryScenes[idx - 1], to: scene }
+                                  : { from: null, to: scene, startImage: scene.sourceImage || selectedImage }
+                              );
+                            }}
+                            disabled={isMakingTransition}
+                            title={
+                              idx > 0
+                                ? `Generate a new AI scene between Scene ${currentStoryScenes[idx - 1].sceneNumber} and this one`
+                                : 'Generate a new AI scene before this one, ending on its first frame'
+                            }
+                            className="text-[9px] px-1 py-0.5 rounded bg-emerald-950/60 hover:bg-emerald-900 text-emerald-300 border border-emerald-700/40 font-medium transition-colors cursor-pointer disabled:opacity-40"
+                          >
+                            + AI before
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setCurrentVideo(scene);
+                              setCompareMode('video');
+                              setShowExtensionDrawer(true);
+                            }}
+                            title={
+                              idx < currentStoryScenes.length - 1
+                                ? 'Generate a new AI scene between this scene and the next'
+                                : 'Generate a new AI scene after this one'
+                            }
+                            className="text-[9px] px-1 py-0.5 rounded bg-emerald-950/60 hover:bg-emerald-900 text-emerald-300 border border-emerald-700/40 font-medium transition-colors cursor-pointer"
+                          >
+                            + AI after
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openUploadSceneModal(scene, 'before');
+                            }}
+                            title="Upload a video clip to insert BEFORE this scene"
+                            className="text-[9px] px-1 py-0.5 rounded bg-blue-950/60 hover:bg-blue-900 text-blue-300 border border-blue-700/40 font-medium transition-colors cursor-pointer"
+                          >
+                            + Clip before
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openUploadSceneModal(scene, 'after');
+                            }}
+                            title="Upload a video clip to insert AFTER this scene"
+                            className="text-[9px] px-1 py-0.5 rounded bg-blue-950/60 hover:bg-blue-900 text-blue-300 border border-blue-700/40 font-medium transition-colors cursor-pointer"
+                          >
+                            + Clip after
+                          </button>
                         </div>
                       </div>
                     </React.Fragment>
@@ -5711,6 +5774,7 @@ export default function App() {
       {transitionPair && (
         <TransitionModal
           from={transitionPair.from}
+          startImage={transitionPair.startImage}
           to={transitionPair.to}
           busy={isMakingTransition}
           error={transitionError}

@@ -16,6 +16,11 @@ export const DEFAULT_TRANSITION_PROMPT =
   'and position in the first frame to its pose and position in the last frame. Keep the same character, style ' +
   'and lighting throughout; the camera glides smoothly between the two framings.';
 
+/** For a new scene placed before another: it starts on a picture and ends on that scene's first frame. */
+export const DEFAULT_BEFORE_PROMPT =
+  'One smooth, continuous shot with no cuts and no fades. The green plush rabbit starts as in the first frame and ' +
+  'moves naturally until the shot ends exactly on the last frame. Keep the same character, style and lighting throughout.';
+
 const dataUrlParts = (dataUrl: string) => {
   const m = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
   if (!m) throw new Error('A transition frame is not a data URL.');

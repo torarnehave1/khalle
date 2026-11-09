@@ -116,3 +116,22 @@ export async function clipDuration(videoUrl: string): Promise<number> {
     v.load();
   }
 }
+
+/** A picture (path, URL, blob or data URL) as a JPEG data URL, for sending to Gemini as a frame. */
+export async function imageToDataUrl(src: string, maxSide = 1280): Promise<string> {
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  await new Promise<void>((resolve, reject) => {
+    img.onload = () => resolve();
+    img.onerror = () => reject(new Error('The start picture could not be read.'));
+    img.src = src;
+  });
+  const scale = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(img.naturalWidth * scale);
+  canvas.height = Math.round(img.naturalHeight * scale);
+  const ctx = canvas.getContext('2d');
+  if (!ctx || !canvas.width) throw new Error('The start picture is empty.');
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL('image/jpeg', 0.9);
+}
