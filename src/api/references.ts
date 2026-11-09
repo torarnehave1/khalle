@@ -487,6 +487,26 @@ export async function resolveReferenceImages(body: any): Promise<ResolvedImage[]
   // =========================================================================
   const clientRefs: any[] = Array.isArray(body.referenceImages) ? body.referenceImages : [];
 
+  // The start picture the user uploaded goes first: the video opens on it.
+  // (The built-in start rabbit is not sent here; the locked likeness pictures already show it.)
+  if (typeof body.imageBase64 === 'string') {
+    const m = body.imageBase64.match(/^data:([^;]+);base64,(.+)$/);
+    if (m) {
+      addUnique({
+        mimeType: body.imageMimeType && /^image\//.test(body.imageMimeType) ? body.imageMimeType : m[1],
+        base64: m[2],
+        filename: 'start_picture.' + (m[1].split('/')[1] || 'jpg').replace('jpeg', 'jpg'),
+        label: 'Start Picture (chosen by the user)',
+        role: 'START FRAME: the user\'s chosen start picture. The video opens on this picture',
+        description:
+          'The first frame of the video must match this picture: the same rabbit, pose, setting, framing and lighting. The scene action then continues from here.',
+        source: 'start_picture',
+        byteSize: base64ByteLength(m[2]),
+        previewUrl: body.imageBase64,
+      });
+    }
+  }
+
   // Universal helper to resolve any reference asset (base64, remote URL in imageUrl/imagePath, or local file)
   const resolveAnyRefAsset = async (ref: any, role: string, desc?: string): Promise<ResolvedImage | null> => {
     if (!ref) return null;
