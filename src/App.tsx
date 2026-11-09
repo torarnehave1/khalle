@@ -710,6 +710,8 @@ export default function App() {
   const [transitionPair, setTransitionPair] = useState<{ from: GeneratedVideo; to: GeneratedVideo } | null>(null);
   const [isMakingTransition, setIsMakingTransition] = useState<boolean>(false);
   const [transitionError, setTransitionError] = useState<string | null>(null);
+  // After a scene is corrected, the next scene still follows the old take. Offer a transition.
+  const [joinOffer, setJoinOffer] = useState<{ sceneId: string; nextId: string } | null>(null);
   const [correctionFeedback, setCorrectionFeedback] = useState<string>('');
   const [correctionSeason, setCorrectionSeason] = useState<string>('spring');
   const [correctionWeather, setCorrectionWeather] = useState<string>('sunny');
@@ -2321,6 +2323,11 @@ export default function App() {
 
       if (correctionMode === 'replace') {
         setVideoHistory((prev) => prev.map((v) => (v.id === sceneToCorrect.id ? correctedScene : v)));
+        const ownNumber = sceneToCorrect.sceneNumber || 1;
+        const next = videoHistoryRef.current
+          .filter((v) => v.storyId === sceneToCorrect.storyId && v.id !== sceneToCorrect.id && (v.sceneNumber || 1) > ownNumber)
+          .sort((a, b) => (a.sceneNumber || 1) - (b.sceneNumber || 1))[0];
+        setJoinOffer(next ? { sceneId: correctedScene.id, nextId: next.id } : null);
       } else {
         setVideoHistory((prev) => [correctedScene, ...prev]);
       }
@@ -2489,6 +2496,7 @@ export default function App() {
       setCurrentVideo(placed?.find((v) => v.id === transition.id) || transition);
       setCompareMode('video');
       setTransitionPair(null);
+      setJoinOffer(null);
     } catch (err: any) {
       console.error('Transition error:', err);
       setTransitionError(`The transition could not be made: ${err?.message || 'unknown error'}`);
@@ -4521,6 +4529,41 @@ export default function App() {
                   </div>
                 </div>
               )}
+
+              {/* After a correction: the next scene was made to follow the old take */}
+              {(() => {
+                if (!joinOffer) return null;
+                const fixed = currentStoryScenes.find((v) => v.id === joinOffer.sceneId);
+                const next = currentStoryScenes.find((v) => v.id === joinOffer.nextId);
+                if (!fixed || !next) return null;
+                return (
+                  <div role="status" className="mb-2 p-2.5 rounded-xl border border-amber-500/40 bg-amber-950/30 flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <span className="text-amber-100">
+                      Scene {next.sceneNumber} was made to follow the old Scene {fixed.sceneNumber}, so the cut between them may jump.
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTransitionError(null);
+                          setTransitionPair({ from: fixed, to: next });
+                        }}
+                        disabled={isMakingTransition}
+                        className="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold cursor-pointer disabled:opacity-50"
+                      >
+                        Make a smooth transition
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setJoinOffer(null)}
+                        className="px-2 py-1 rounded-lg text-slate-400 hover:text-slate-200 cursor-pointer"
+                      >
+                        Dismiss
+                      </button>
+                    </span>
+                  </div>
+                );
+              })()}
 
               {/* Timeline Strip */}
               <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin">
