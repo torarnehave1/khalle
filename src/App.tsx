@@ -714,6 +714,7 @@ export default function App() {
   const [correctionSeason, setCorrectionSeason] = useState<string>('spring');
   const [correctionWeather, setCorrectionWeather] = useState<string>('sunny');
   const [correctionMode, setCorrectionMode] = useState<'replace' | 'duplicate'>('replace');
+  const [correctionSeconds, setCorrectionSeconds] = useState<number>(5);
   const [isCorrecting, setIsCorrecting] = useState<boolean>(false);
 
   // AI Cinematographer & Director state
@@ -2082,9 +2083,20 @@ export default function App() {
     }
   };
 
+  // A correction of scene 1 is made fresh (up to 15 s). A later scene is made again as a
+  // continuation of the scene before it: 3–10 s, and the chain may not pass 30 s in total.
+  const correctionIsRoot = (scene: GeneratedVideo) => (scene.sceneNumber || 1) === 1 || !scene.previousInteractionId;
+  const correctionMaxSeconds = (scene: GeneratedVideo) => {
+    if (correctionIsRoot(scene)) return 15;
+    const parent = videoHistoryRef.current.find((v) => v.interactionId === scene.previousInteractionId);
+    const used = parent ? extensionChainSeconds(parent, videoHistoryRef.current) : 0;
+    return Math.max(3, Math.min(10, MAX_EXTENSION_CHAIN_SECONDS - used));
+  };
+
   // Open correction modal for a specific scene
   const openCorrectionModal = (scene: GeneratedVideo) => {
     setSceneToCorrect(scene);
+    setCorrectionSeconds(Math.min(correctionMaxSeconds(scene), Math.max(3, parseInt(String(scene.duration || '5'), 10) || 5)));
     setCorrectionPrompt(scene.prompt);
     setCorrectionFeedback('');
     setCorrectionSeason(scene.season || selectedSeason);
@@ -2142,7 +2154,9 @@ export default function App() {
       finalCorrectedPrompt = `${finalCorrectedPrompt} [Correction: ${correctionFeedback.trim()}]`;
     }
 
-    const isRootScene = (sceneToCorrect.sceneNumber || 1) === 1 || !sceneToCorrect.previousInteractionId;
+    const isRootScene = correctionIsRoot(sceneToCorrect);
+    const takeSeconds = Math.min(correctionMaxSeconds(sceneToCorrect), Math.max(3, Math.round(correctionSeconds)));
+    const takeDuration = `${takeSeconds}s`;
 
     try {
       // Gemini Omni Flash
@@ -2167,7 +2181,7 @@ export default function App() {
         const payload: any = {
           prompt: finalCorrectedPrompt,
           aspectRatio: sceneToCorrect.aspectRatio,
-          duration: sceneToCorrect.duration || '5s',
+          duration: takeDuration,
           resolution,
           season: correctionSeason,
           weather: correctionWeather,
@@ -2229,7 +2243,7 @@ export default function App() {
             previousInteractionId: sceneToCorrect.previousInteractionId,
             prompt: finalCorrectedPrompt,
             aspectRatio: sceneToCorrect.aspectRatio,
-            duration: '5s',
+            duration: takeDuration,
             resolution,
             season: correctionSeason,
             weather: correctionWeather,
@@ -2288,6 +2302,13 @@ export default function App() {
         id: data.interactionId || `omni-corrected-${Date.now()}`,
         videoUrl: data.videoUrl,
         prompt: finalCorrectedPrompt,
+        duration: data.duration || takeDuration,
+        // A new take: the old scene's trim and measured length do not apply. For a continuation
+        // the auto-trim measures the new clip and starts it where the new part begins.
+        trimStart: undefined,
+        trimEnd: undefined,
+        clipSeconds: undefined,
+        extensionTrimChecked: undefined,
         season: correctionSeason,
         weather: correctionWeather,
         cost: estimatedCost.display,
@@ -5328,6 +5349,42 @@ export default function App() {
                   </div>
                 </div>
               </div>
+
+              {/* Length of the new take */}
+              {(() => {
+                const max = correctionMaxSeconds(sceneToCorrect);
+                const shown = Math.min(max, correctionSeconds);
+                const root = correctionIsRoot(sceneToCorrect);
+                return (
+                  <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800 flex flex-col gap-1.5">
+                    <label htmlFor="correction-length" className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                      <span>Scene length</span>
+                      <span className="font-mono text-sm normal-case tracking-normal text-amber-300">{shown} s</span>
+                    </label>
+                    <input
+                      id="correction-length"
+                      type="range"
+                      min={3}
+                      max={max}
+                      step={1}
+                      value={shown}
+                      onChange={(e) => setCorrectionSeconds(Number(e.target.value))}
+                      className="w-full accent-amber-500 cursor-pointer"
+                    />
+                    <div className="flex justify-between text-[10px] text-slate-500 font-mono">
+                      <span>3 s</span>
+                      <span>
+                        {max} s{' '}
+                        {root
+                          ? '(new scene from a picture)'
+                          : max < 10
+                          ? '(room left in the 30 s chain)'
+                          : "(continues the scene before; Gemini's limit)"}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* How to Apply: Replace or Save as Alternate */}
               <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
