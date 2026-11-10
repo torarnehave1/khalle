@@ -822,6 +822,11 @@ export default function App() {
   const [addMenu, setAddMenu] = useState<{ sceneId: string; side: 'before' | 'after' } | null>(null);
   /** 'stories' shows the Stories page instead of the make-a-scene screen. */
   const [view, setView] = useState<'make' | 'stories'>('make');
+  /** While a scene is being made: getting it ready ('preparing') or waiting for Gemini ('making'), its number, and when it started. */
+  const [genPhase, setGenPhase] = useState<'preparing' | 'making'>('preparing');
+  const [makingSceneNo, setMakingSceneNo] = useState(1);
+  const [genStartedAt, setGenStartedAt] = useState(0);
+  const [genNow, setGenNow] = useState(0);
   /** Story being renamed on the Stories page, and the text typed so far. */
   const [renaming, setRenaming] = useState<{ storyId: string; text: string } | null>(null);
   /** The ⋯ "Move or copy" menu on a scene card: which scene, to which story ('new' = a new story), at which slot. */
@@ -1670,6 +1675,12 @@ export default function App() {
   // Generate video via Gemini Interactions API (gemini-omni-1.2-flash)
   const handleGenerateVideo = async (overridePrompt?: string) => {
     setIsGenerating(true);
+    setGenPhase('preparing');
+    setGenStartedAt(Date.now());
+    {
+      const join = appendToStoryRef.current;
+      setMakingSceneNo(join ? videoHistoryRef.current.filter((v) => v.storyId === join).length + 1 : 1);
+    }
     setErrorMessage(null);
     setProgressPercent(10);
     setProgressStep(`Applying ${currentSeasonObj.name} season & ${currentWeatherObj.name} weather...`);
@@ -1812,6 +1823,7 @@ export default function App() {
         payload.imageMimeType = imageMimeType;
       }
 
+      setGenPhase('making');
       const response = await fetch('/api/animate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2062,6 +2074,9 @@ export default function App() {
     opts?: { seconds?: number; season?: string; weather?: string }
   ) => {
     setIsExtending(true);
+    setGenPhase('preparing');
+    setGenStartedAt(Date.now());
+    setMakingSceneNo((parentVideo.sceneNumber || 1) + 1);
     setErrorMessage(null);
     const nextSceneNumber = (parentVideo.sceneNumber || 1) + 1;
     const continuationPrompt = (overridePrompt || nextScenePrompt).trim();
@@ -2151,6 +2166,7 @@ export default function App() {
         });
       }, 1800);
 
+      setGenPhase('making');
       const response = await fetch(continueInteraction ? '/api/extend' : '/api/animate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2761,6 +2777,14 @@ export default function App() {
   };
 
   useEffect(() => setCutAnalysis(null), [currentVideo?.id]);
+
+  // The "38 s so far" clock while a scene is being made.
+  useEffect(() => {
+    if (!isGenerating && !isExtending) return;
+    setGenNow(Date.now());
+    const t = setInterval(() => setGenNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [isGenerating, isExtending]);
 
   // Generate a clip from the last frame of one scene to the first frame of the next and put it between them.
   const handleCreateTransition = async (
@@ -4203,38 +4227,47 @@ export default function App() {
             <div className="relative w-full rounded-xl overflow-hidden bg-slate-950 border border-slate-800 flex items-center justify-center min-h-[420px] max-h-[580px]">
               {/* Generating overlay state */}
               {isGenerating || isExtending ? (
-                <div className="p-6 flex flex-col items-center justify-center text-center max-w-md w-full gap-5 z-20">
-                  <div className="relative w-24 h-24">
-                    <motion.div
-                      animate={{ rotate: 360 }}
-                      transition={{ duration: 3, repeat: Infinity, ease: 'linear' }}
-                      className="absolute inset-0 rounded-full border-4 border-slate-800 border-t-emerald-400 border-r-teal-400"
-                    />
-                    <motion.div
-                      animate={{ y: [-10, 10, -10] }}
-                      transition={{ duration: 1.2, repeat: Infinity, ease: 'easeInOut' }}
-                      className="absolute inset-0 flex items-center justify-center text-4xl"
-                    >
-                      {currentSeasonObj.icon}
-                    </motion.div>
-                  </div>
-
-                  <div className="space-y-2 w-full">
-                    <h3 className="font-bold text-lg text-slate-100">Making the scene</h3>
-                    <p className="text-sm text-slate-300">Usually about 1 minute. Keep this page open until it is done.</p>
-                    <p className="text-xs text-slate-400">{progressStep}</p>
-
-                    {/* Progress bar */}
-                    <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden mt-3">
-                      <motion.div
-                        className="bg-gradient-to-r from-emerald-500 to-teal-400 h-full rounded-full"
-                        style={{ width: `${progressPercent}%` }}
-                        transition={{ duration: 0.3 }}
-                      />
+                (() => {
+                  const secs = Math.max(0, Math.round((genNow - genStartedAt) / 1000));
+                  const steps = [
+                    { label: 'Getting the picture and text ready', state: genPhase === 'preparing' ? 'active' : 'done' },
+                    { label: 'Gemini is making the video', state: genPhase === 'making' ? 'active' : 'pending' },
+                    { label: 'It plays here and joins the story', state: 'pending' },
+                  ] as const;
+                  return (
+                    <div className="p-6 flex flex-col items-center justify-center text-center max-w-md w-full gap-5 z-20" role="status" aria-live="polite">
+                      <h3 className="font-bold text-xl text-slate-100">Making Scene {makingSceneNo}</h3>
+                      <p className="text-sm text-slate-300">
+                        Usually about 1 minute · {secs} s so far
+                      </p>
+                      <div
+                        className="w-full max-w-sm bg-slate-800 h-2 rounded-full overflow-hidden"
+                        role="progressbar"
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={progressPercent}
+                        aria-label="Progress"
+                      >
+                        <div className="bg-emerald-400 h-full rounded-full transition-[width] duration-300" style={{ width: `${Math.max(4, progressPercent)}%` }} />
+                      </div>
+                      <ol className="w-full max-w-sm flex flex-col gap-3 text-left text-sm">
+                        {steps.map((st) => (
+                          <li key={st.label} className={`flex items-center gap-2.5 ${st.state === 'pending' ? 'text-slate-500' : 'text-slate-100'}`}>
+                            {st.state === 'done' ? (
+                              <span className="w-6 h-6 rounded-full bg-emerald-400 text-slate-950 text-xs font-bold flex items-center justify-center shrink-0">✓</span>
+                            ) : st.state === 'active' ? (
+                              <span className="w-6 h-6 rounded-full border-2 border-emerald-400 border-t-transparent animate-spin shrink-0" aria-hidden="true" />
+                            ) : (
+                              <span className="w-6 h-6 rounded-full border-2 border-slate-700 shrink-0" aria-hidden="true" />
+                            )}
+                            <span className={st.state === 'active' ? 'font-semibold' : ''}>{st.label}</span>
+                          </li>
+                        ))}
+                      </ol>
+                      <p className="text-xs text-slate-400">Keep this page open until it is done.</p>
                     </div>
-                  </div>
-
-                </div>
+                  );
+                })()
               ) : currentVideo ? (
                 /* Display Video or Comparison View */
                 <div className="w-full h-full flex items-center justify-center relative">
