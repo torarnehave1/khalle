@@ -17,6 +17,7 @@ import {
   getServerStory,
   hasServerSession,
   imageFileName,
+  isBoardFile,
   listServerFiles,
   putServerFile,
   putServerStory,
@@ -187,6 +188,17 @@ type ServerItem = Record<string, unknown> & {
 
 const imageNames = new Map<string, string>();
 
+/**
+ * One queue for everything that writes the account's story document, so a scene save and a
+ * story-board save never overlap (each sends the whole document).
+ */
+let serverQueue: Promise<void> = Promise.resolve();
+export function queueServerTask(task: () => Promise<void>): Promise<void> {
+  const run = serverQueue.then(task);
+  serverQueue = run.catch(() => {});
+  return run;
+}
+
 async function toServerItems<T extends WithVideo>(history: T[]) {
   const files = new Map<string, () => Promise<Blob | null>>();
   const items: ServerItem[] = [];
@@ -295,7 +307,6 @@ export function useStoryPersistence<T extends WithVideo>(
 
   const sync = useRef<SyncState | null>(null);
   const serverFiles = useRef<Set<string> | null>(null);
-  const chain = useRef<Promise<void>>(Promise.resolve());
   const queued = useRef(false);
   const lastServerError = useRef('');
 
@@ -344,7 +355,7 @@ export function useStoryPersistence<T extends WithVideo>(
     sync.current = { serverAt: updatedAt, syncedHash: hash };
     await saveSyncState(sync.current);
     for (const name of [...serverFiles.current]) {
-      if (files.has(name)) continue;
+      if (files.has(name) || isBoardFile(name)) continue; // story-board pictures are kept by the board sync
       await deleteServerFile(name).catch(() => {});
       serverFiles.current.delete(name);
     }
@@ -353,7 +364,7 @@ export function useStoryPersistence<T extends WithVideo>(
   const scheduleServerSync = () => {
     if (queued.current) return;
     queued.current = true;
-    chain.current = chain.current.then(async () => {
+    void queueServerTask(async () => {
       queued.current = false;
       try {
         await reconcile();
@@ -398,4 +409,26 @@ export function useStoryPersistence<T extends WithVideo>(
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [history]);
+}
+
+/** Read/write one value in this browser's story database (used by the story board). */
+export async function readMeta<T>(key: string): Promise<T | undefined> {
+  const db = await openDb();
+  try {
+    const tx = db.transaction(META, 'readonly');
+    return (await reqToPromise(tx.objectStore(META).get(key))) as T | undefined;
+  } finally {
+    db.close();
+  }
+}
+
+export async function writeMeta(key: string, value: unknown): Promise<void> {
+  const db = await openDb();
+  try {
+    const tx = db.transaction(META, 'readwrite');
+    tx.objectStore(META).put(value, key);
+    await txDone(tx);
+  } finally {
+    db.close();
+  }
 }

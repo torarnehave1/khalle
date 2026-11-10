@@ -85,6 +85,10 @@ import {
 } from './components/ScriptToStoryModal';
 import { UploadSceneModal } from './components/UploadSceneModal';
 import { useStoryPersistence } from './lib/storyStore';
+import { useBoards } from './lib/boardStore';
+import StoryBoard from './components/StoryBoard';
+import AlbumPicker from './components/AlbumPicker';
+import { newBoard } from './api/board';
 import { useTrimmedPlayback } from './lib/trimPlayback';
 import { extensionChainSeconds, MAX_EXTENSION_CHAIN_SECONDS } from './lib/extensionChain';
 import { grabFrame, imageToDataUrl } from './lib/frameGrab';
@@ -835,7 +839,31 @@ export default function App() {
   /** The "+ Before" / "+ After" choice on a scene card: make it with AI or upload a clip. */
   const [addMenu, setAddMenu] = useState<{ sceneId: string; side: 'before' | 'after' } | null>(null);
   /** 'stories' shows the Stories page instead of the make-a-scene screen. */
-  const [view, setView] = useState<'make' | 'stories'>('make');
+  const [view, setView] = useState<'make' | 'stories' | 'board'>('make');
+  /** Story boards (plan the story with key pictures, then make the film scene by scene). */
+  const { boards, setBoards } = useBoards((message) => setErrorMessage(message));
+  const [activeBoardId, setActiveBoardId] = useState<string>(() => {
+    try {
+      return localStorage.getItem('khalle:board') || '';
+    } catch {
+      return '';
+    }
+  });
+  const activeBoard = boards.find((b) => b.id === activeBoardId) || boards[0];
+  useEffect(() => {
+    try {
+      if (activeBoard) localStorage.setItem('khalle:board', activeBoard.id);
+    } catch {
+      /* not remembered */
+    }
+  }, [activeBoard?.id]);
+  /**
+   * A board scene being made: the board's text and picture are put into the make-a-scene state, and
+   * the effect below starts the normal Generate once that state is in place (so it reads it fresh).
+   */
+  const [boardRun, setBoardRun] = useState<{ boardId: string; index: number; lastId?: string; before: string[]; started: boolean; done?: boolean } | null>(null);
+  /** "From my albums" on the make-a-scene screen: for the start picture or a reference picture. */
+  const [makeAlbums, setMakeAlbums] = useState<null | 'start' | 'ref'>(null);
   /** While a scene is being made: getting it ready ('preparing') or waiting for Gemini ('making'), its number, and when it started. */
   const [genPhase, setGenPhase] = useState<'preparing' | 'making'>('preparing');
   const [makingSceneNo, setMakingSceneNo] = useState(1);
@@ -2776,6 +2804,92 @@ export default function App() {
 
   // Master trigger routing to Gemini Omni Flash
   // The left panel's Generate: a new story, or the next scene of the open story.
+  /** Story board → "Make Scene N": Scene 1 starts on its picture, later scenes end exactly on theirs. */
+  const startBoardScene = (index: number) => {
+    const board = activeBoard;
+    const scene = board?.scenes[index];
+    if (!board || !scene?.image) return;
+    const storyScenes = board.storyId
+      ? videoHistory.filter((v) => v.storyId === board.storyId).sort((a, b) => (a.sceneNumber || 1) - (b.sceneNumber || 1))
+      : [];
+    const last = storyScenes[storyScenes.length - 1];
+    setPrompt(scene.action);
+    setDuration(scene.seconds === 10 ? '10s' : '5s');
+    setAspectRatio(board.aspectRatio);
+    if (!last) {
+      setSelectedImage(scene.image);
+      setIsDefaultImage(false);
+      setImageMimeType(scene.image.match(/^data:([^;]+);/)?.[1] || 'image/png');
+      setNextStartsFrom('picture');
+      setCurrentVideo(null);
+      // The board's characters, props and places go along as reference pictures (at most 3).
+      setSceneRefs(board.cast.slice(0, 3).map((c) => ({ id: `ref-board-${c.id}`, image: c.image, label: `${c.name} (keep exactly this look)`, endHere: false })));
+    } else {
+      setNextStartsFrom('end');
+      setCurrentVideo(last);
+      setSceneRefs([]);
+    }
+    setBoardRun({ boardId: board.id, index, lastId: last?.id, before: videoHistory.map((v) => v.id), started: false });
+    setView('make');
+    window.scrollTo({ top: 0 });
+  };
+
+  useEffect(() => {
+    if (!boardRun || boardRun.started) return;
+    const board = boards.find((b) => b.id === boardRun.boardId);
+    const image = board?.scenes[boardRun.index]?.image;
+    if (!board || !image) {
+      setBoardRun(null);
+      return;
+    }
+    setBoardRun({ ...boardRun, started: true });
+    const last = boardRun.lastId ? videoHistoryRef.current.find((v) => v.id === boardRun.lastId) : undefined;
+    void (async () => {
+      if (last) await handleEndOnPicture(last, image);
+      else {
+        appendToStoryRef.current = null;
+        await handleGenerateVideo();
+      }
+      setBoardRun((r) => (r ? { ...r, done: true } : r));
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boardRun]);
+
+  // When the board's scene is made: remember it on the board (and name a new story after the board).
+  useEffect(() => {
+    if (!boardRun?.done) return;
+    const before = new Set(boardRun.before);
+    const lastStory = boardRun.lastId ? videoHistory.find((v) => v.id === boardRun.lastId)?.storyId : undefined;
+    const made = videoHistory.find((v) => !before.has(v.id) && (lastStory ? v.storyId === lastStory : true));
+    setBoardRun(null);
+    if (!made) return; // it failed; the error is shown on the scene screen
+    const board = boards.find((b) => b.id === boardRun.boardId);
+    if (!board) return;
+    setBoards((list) =>
+      list.map((b) =>
+        b.id === board.id
+          ? {
+              ...b,
+              storyId: made.storyId,
+              scenes: b.scenes.map((s, i) => (i === boardRun.index ? { ...s, madeSceneId: made.id } : s)),
+              updatedAt: Date.now(),
+            }
+          : b
+      )
+    );
+    if (!lastStory && board.title.trim()) {
+      setVideoHistory((prev) => prev.map((v) => (v.storyId === made.storyId && !v.storyTitle ? { ...v, storyTitle: board.title.trim() } : v)));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boardRun, videoHistory]);
+
+  const applyAlbumPicture = async (dataUrl: string, dest: string) => {
+    setMakeAlbums(null);
+    const blob = await (await fetch(dataUrl)).blob();
+    if (dest === 'ref') addSceneRef(blob);
+    else loadStartPicture(blob, 'chosen');
+  };
+
   const handleTriggerGenerate = () => {
     const last = openStoryLastScene;
     const endRef = sceneRefs.find((r) => r.endHere);
@@ -3392,6 +3506,19 @@ export default function App() {
             </button>
             <button
               type="button"
+              aria-current={view === 'board' ? 'page' : undefined}
+              onClick={() => {
+                setView((v) => (v === 'board' ? 'make' : 'board'));
+                window.scrollTo({ top: 0 });
+              }}
+              className={`min-h-[40px] px-3 rounded-lg text-sm font-medium border cursor-pointer ${
+                view === 'board' ? 'border-emerald-400 bg-emerald-950/70 text-emerald-100' : 'border-slate-700 text-slate-200 hover:border-emerald-500'
+              }`}
+            >
+              {view === 'board' ? 'Back to the scene' : 'Story board'}
+            </button>
+            <button
+              type="button"
               aria-current={view === 'stories' ? 'page' : undefined}
               onClick={() => {
                 setView((v) => (v === 'stories' ? 'make' : 'stories'));
@@ -3426,6 +3553,68 @@ export default function App() {
           </nav>
         </div>
       </header>
+
+      {/* Story board */}
+      {view === 'board' && (
+        <main id="board" className="flex-1 max-w-[1440px] w-full mx-auto p-4 lg:p-6">
+          {activeBoard ? (
+            <StoryBoard
+              board={activeBoard}
+              boards={boards}
+              onChange={(next) => setBoards((list) => list.map((b) => (b.id === next.id ? next : b)))}
+              onSelect={setActiveBoardId}
+              onNew={() => {
+                const b = newBoard(aspectRatio);
+                setBoards((list) => [b, ...list]);
+                setActiveBoardId(b.id);
+              }}
+              onDelete={(id) => {
+                setBoards((list) => list.map((b) => (b.id === id ? { ...b, deleted: true, cast: [], scenes: [], updatedAt: Date.now() } : b)));
+                setActiveBoardId('');
+              }}
+              storyScenes={
+                activeBoard.storyId
+                  ? videoHistory
+                      .filter((v) => v.storyId === activeBoard.storyId)
+                      .sort((a, b) => (a.sceneNumber || 1) - (b.sceneNumber || 1))
+                      .map((v) => ({ id: v.id, sceneNumber: v.sceneNumber }))
+                  : []
+              }
+              onMakeScene={startBoardScene}
+              onOpenStory={() => {
+                const last = videoHistory
+                  .filter((v) => v.storyId === activeBoard.storyId)
+                  .sort((a, b) => (a.sceneNumber || 1) - (b.sceneNumber || 1))
+                  .pop();
+                if (last) setCurrentVideo(last);
+                setView('make');
+                window.scrollTo({ top: 0 });
+              }}
+              busy={isGenerating}
+              ratePerSec={estimatedCost.ratePerSec}
+            />
+          ) : (
+            <div className="max-w-xl mx-auto mt-12 bg-slate-900 border border-slate-800 rounded-2xl p-6 flex flex-col gap-3 text-center">
+              <h1 className="text-2xl font-bold text-white">Story board</h1>
+              <p className="text-slate-300">
+                Write the story in a few lines. Gemini splits it into scenes and makes one key picture for each. You approve the
+                pictures, and then each scene is made so it ends exactly on its picture.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  const b = newBoard(aspectRatio);
+                  setBoards((list) => [b, ...list]);
+                  setActiveBoardId(b.id);
+                }}
+                className="self-center min-h-[48px] px-5 rounded-xl bg-emerald-400 hover:bg-emerald-300 text-slate-950 font-bold cursor-pointer"
+              >
+                Start a story board
+              </button>
+            </div>
+          )}
+        </main>
+      )}
 
       {/* Main Studio Layout */}
       {view === 'stories' && (
@@ -3681,7 +3870,7 @@ export default function App() {
           })}
         </main>
       )}
-      <main className={`${view === 'stories' ? 'hidden ' : ''}flex-1 max-w-7xl w-full mx-auto p-4 lg:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6`}>
+      <main className={`${view !== 'make' ? 'hidden ' : ''}flex-1 max-w-7xl w-full mx-auto p-4 lg:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6`}>
         {/* Left column: 1 Who and where, 2 What happens, Generate */}
         <section aria-label="Make a scene" className="lg:col-span-5 flex flex-col bg-slate-900/80 border border-slate-800 rounded-2xl shadow-xl self-start">
           <div className="p-4 sm:p-5 flex flex-col gap-5">
@@ -3776,6 +3965,9 @@ export default function App() {
                     </button>
                     <button type="button" onClick={handlePasteButton} className="min-h-[36px] px-3 rounded-lg border border-slate-700 text-sm text-slate-200 hover:border-emerald-500 cursor-pointer">
                       Paste picture
+                    </button>
+                    <button type="button" onClick={() => setMakeAlbums('start')} className="min-h-[36px] px-3 rounded-lg border border-slate-700 text-sm text-slate-200 hover:border-emerald-500 cursor-pointer">
+                      From my albums
                     </button>
                     {!isDefaultImage && (
                       <button type="button" onClick={handleResetToRabbit} className="min-h-[36px] px-3 rounded-lg text-sm text-slate-400 hover:text-emerald-300 cursor-pointer">
@@ -3920,6 +4112,9 @@ export default function App() {
                     </label>
                     <button type="button" onClick={pasteSceneRefFromClipboard} className="min-h-[36px] px-3 rounded-lg border border-slate-700 text-sm text-slate-200 hover:border-emerald-500 cursor-pointer">
                       Paste picture
+                    </button>
+                    <button type="button" onClick={() => setMakeAlbums('ref')} className="min-h-[36px] px-3 rounded-lg border border-slate-700 text-sm text-slate-200 hover:border-emerald-500 cursor-pointer">
+                      From my albums
                     </button>
                   </div>
                 )}
@@ -5640,6 +5835,18 @@ export default function App() {
 
         </div>
       </main>
+
+      {makeAlbums && (
+        <AlbumPicker
+          destinations={[
+            { id: 'start', label: 'Start picture', hint: 'The next scene starts on it.' },
+            { id: 'ref', label: 'Reference picture', hint: 'A guide for the next scene (up to 3).' },
+          ]}
+          initial={makeAlbums}
+          onClose={() => setMakeAlbums(null)}
+          onUse={(dataUrl, dest) => void applyAlbumPicture(dataUrl, dest)}
+        />
+      )}
 
       {castModal && (
         <CastModal
