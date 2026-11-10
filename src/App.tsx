@@ -87,7 +87,7 @@ import { UploadSceneModal } from './components/UploadSceneModal';
 import { useStoryPersistence } from './lib/storyStore';
 import { useTrimmedPlayback } from './lib/trimPlayback';
 import { extensionChainSeconds, MAX_EXTENSION_CHAIN_SECONDS } from './lib/extensionChain';
-import { grabFrame } from './lib/frameGrab';
+import { grabFrame, imageToDataUrl } from './lib/frameGrab';
 import { findExtensionSeam, storyPlayEnd } from './lib/seam';
 import { analyzeCut, type CutAnalysis } from './api/cutAnalysis';
 import { exportStory } from './lib/storyExport';
@@ -844,6 +844,11 @@ export default function App() {
   /** A short note after a picture was pasted or dropped (or why it could not be). */
   const [pictureNote, setPictureNote] = useState<string | null>(null);
   const [pictureDropHover, setPictureDropHover] = useState(false);
+  /** Extra pictures for the next scene (the wider view, the place, the others around); endHere = finish exactly on it. */
+  const [sceneRefs, setSceneRefs] = useState<{ id: string; image: string; label: string; endHere: boolean }[]>([]);
+  const [refsDropHover, setRefsDropHover] = useState(false);
+  /** Where a Cmd/Ctrl+V picture goes right now (kept in a ref for the window paste listener). */
+  const pasteToRefsRef = useRef(false);
   /** "Save this character": the frame it was opened on and the scene it came from. */
   const [castModal, setCastModal] = useState<{ frame: string; scene: GeneratedVideo } | null>(null);
   /** Story being renamed on the Stories page, and the text typed so far. */
@@ -1528,6 +1533,20 @@ export default function App() {
       setErrorMessage(e?.message || 'The frame could not be read.');
     }
   };
+  /** The next scene's reference pictures (guides only) as request parts. */
+  const sceneRefRequest = () => {
+    const guides = sceneRefs.filter((r) => !r.endHere);
+    return {
+      refs: guides.map((r, i) => ({
+        label: r.label.trim() || 'The wider view of the scene',
+        filename: `scene_reference_${i + 1}.jpg`,
+        category: 'scene_reference',
+        imageBase64: r.image,
+        mimeType: (r.image.match(/^data:([^;]+);/) || [])[1] || 'image/jpeg',
+      })),
+      fields: guides.length ? { sceneReferenceLabels: guides.map((r) => r.label.trim() || 'The wider view of the scene') } : {},
+    };
+  };
   /** Card fields copied onto a new scene of the same story. */
   const castFieldsOf = (scene?: GeneratedVideo) =>
     scene?.castImage ? { castImage: scene.castImage, castDescription: scene.castDescription, castName: scene.castName } : {};
@@ -1584,6 +1603,7 @@ export default function App() {
       : undefined;
   const nextSceneNumber = openStoryLastScene ? currentStoryScenes.length + 1 : 1;
   const continuesLastScene = !!openStoryLastScene && nextStartsFrom === 'end';
+  pasteToRefsRef.current = continuesLastScene;
   /** The open story's character card, if it has one. */
   const openStoryCast = currentStoryScenes.find((v) => v.castImage);
 
@@ -1724,6 +1744,36 @@ export default function App() {
       setPictureNote(how === 'chosen' ? null : `Picture ${how} as the start picture.`);
     };
     reader.readAsDataURL(file);
+  };
+
+  /** Add a picture (chosen, pasted or dropped) to the next scene's reference pictures. */
+  const addSceneRef = (file: Blob) => {
+    if (!file.type.startsWith('image/')) {
+      setErrorMessage('That is not a picture. Use a JPEG, PNG or WebP image.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const image = event.target?.result as string;
+      setSceneRefs((list) =>
+        list.length >= 3
+          ? list
+          : [...list, { id: `ref-${Date.now()}`, image, label: list.length ? '' : 'The wider view of the scene', endHere: false }]
+      );
+      setPictureNote(null);
+    };
+    reader.readAsDataURL(file);
+  };
+  const pasteSceneRefFromClipboard = async () => {
+    try {
+      for (const item of await navigator.clipboard.read()) {
+        const type = item.types.find((t) => t.startsWith('image/'));
+        if (type) return addSceneRef(await item.getType(type));
+      }
+      setErrorMessage('There is no picture on the clipboard. Copy a picture first, then paste.');
+    } catch {
+      setErrorMessage('The browser did not allow reading the clipboard. Click in the reference box and press Cmd+V (Ctrl+V on Windows) instead.');
+    }
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1902,8 +1952,9 @@ export default function App() {
         const join = appendToStoryRef.current;
         const joinScene = join ? videoHistoryRef.current.find((v) => v.storyId === join && v.castImage) : undefined;
         const cast = castRequest(joinScene);
-        if (cast.refs.length) combinedReferenceImages.unshift(...cast.refs);
-        Object.assign(payload, cast.fields);
+        const guides = sceneRefRequest();
+        if (cast.refs.length || guides.refs.length) (combinedReferenceImages as any[]).unshift(...cast.refs, ...guides.refs);
+        Object.assign(payload, cast.fields, guides.fields);
       }
 
       if (combinedReferenceImages.length > 0) {
@@ -1995,6 +2046,7 @@ export default function App() {
       const joined = joinLast
         ? replaceInStory(joinLast.id, [joinLast, { ...newVideo, storyId: joinStory!, storyTitle: joinLast.storyTitle, ...castFieldsOf(joinLast) }])
         : undefined;
+      setSceneRefs([]);
       if (joined) {
         setCurrentVideo(joined.find((v) => v.id === newVideo.id) || newVideo);
       } else {
@@ -2178,7 +2230,7 @@ export default function App() {
   const handleExtendScene = async (
     parentVideo: GeneratedVideo,
     overridePrompt?: string,
-    opts?: { seconds?: number; season?: string; weather?: string }
+    opts?: { seconds?: number; season?: string; weather?: string; refs?: ReturnType<typeof sceneRefRequest> }
   ) => {
     setIsExtending(true);
     setGenPhase('preparing');
@@ -2282,6 +2334,7 @@ export default function App() {
             ? { previousInteractionId: parentVideo.interactionId }
             : { imageBase64: startFrame, imageMimeType: 'image/jpeg' }),
           ...castRequest(parentVideo).fields,
+          ...(opts?.refs?.fields || {}),
           prompt: generationPrompt,
           aspectRatio: parentVideo.aspectRatio,
           duration: `${sceneSeconds}s`,
@@ -2305,6 +2358,7 @@ export default function App() {
           referenceImages: [
             ...continuityRefs,
             ...castRequest(parentVideo).refs,
+            ...(opts?.refs?.refs || []),
             ...referenceAssets.filter((a) => a.enabled).map((ref) => ({
               label: ref.label,
               imagePath: ref.imagePath,
@@ -2370,6 +2424,7 @@ export default function App() {
       if (!placed) setVideoHistory((prev) => [newScene, ...prev]);
       setCurrentVideo(placed?.find((s) => s.id === newScene.id) || newScene);
       setShowExtensionDrawer(false);
+      if (opts?.refs) setSceneRefs([]);
     } catch (err: any) {
       console.error('Scene extension error:', err);
       fetchLatestLog(false);
@@ -2723,8 +2778,13 @@ export default function App() {
   // The left panel's Generate: a new story, or the next scene of the open story.
   const handleTriggerGenerate = () => {
     const last = openStoryLastScene;
+    const endRef = sceneRefs.find((r) => r.endHere);
+    if (endRef) {
+      handleEndOnPicture(last, endRef.image);
+      return;
+    }
     if (last && nextStartsFrom === 'end') {
-      handleExtendScene(last, prompt, { seconds: parseInt(duration, 10) || 5, season: selectedSeason, weather: selectedWeather });
+      handleExtendScene(last, prompt, { seconds: parseInt(duration, 10) || 5, season: selectedSeason, weather: selectedWeather, refs: sceneRefRequest() });
       return;
     }
     appendToStoryRef.current = last ? last.storyId : null;
@@ -2925,7 +2985,10 @@ export default function App() {
       const file = item?.getAsFile();
       if (!file) return;
       e.preventDefault();
-      loadStartPicture(file, 'pasted');
+      // Continuing a scene, or pasting inside the reference box: it is a reference picture.
+      const inRefs = (e.target as HTMLElement | null)?.closest?.('[data-scene-refs]');
+      if (inRefs || pasteToRefsRef.current) addSceneRef(file);
+      else loadStartPicture(file, 'pasted');
     };
     window.addEventListener('paste', onPaste);
     return () => window.removeEventListener('paste', onPaste);
@@ -2995,6 +3058,72 @@ export default function App() {
       setTransitionError(`The transition could not be made: ${err?.message || 'unknown error'}`);
     } finally {
       setIsMakingTransition(false);
+    }
+  };
+
+  /**
+   * The next scene ends exactly on a reference picture: Gemini's first-and-last-frame mode. Starts on the
+   * last frame of the open story's last scene (continuing) or on the start picture.
+   */
+  const handleEndOnPicture = async (last: GeneratedVideo | undefined, endImage: string) => {
+    setIsGenerating(true);
+    setGenPhase('preparing');
+    setGenStartedAt(Date.now());
+    setMakingSceneNo(last ? currentStoryScenes.length + 1 : 1);
+    setErrorMessage(null);
+    setProgressPercent(10);
+    try {
+      const continuing = !!last && nextStartsFrom === 'end';
+      const firstFrame = continuing ? await grabFrame(last!.videoUrl, last!.trimEnd ?? Number.POSITIVE_INFINITY) : await imageToDataUrl(selectedImage);
+      const lastFrame = await imageToDataUrl(endImage);
+      const secs = Math.min(10, parseInt(duration, 10) || 5);
+      const talk = silentTalk
+        ? ' The main character talks during the whole shot: the mouth moves in a speaking rhythm with expressions and gestures, but there are no audible words.'
+        : '';
+      setGenPhase('making');
+      setProgressPercent(35);
+      const result = await generateTransition({
+        firstFrame,
+        lastFrame,
+        prompt: `${prompt.trim()}${talk} The video ends exactly on the last image.`,
+        seconds: secs,
+        aspectRatio: (last?.aspectRatio || aspectRatio) === '16:9' ? '16:9' : '9:16',
+        resolution,
+      });
+      const id = result.interactionId || `vid-${Date.now()}`;
+      const scene: GeneratedVideo = {
+        id,
+        videoUrl: result.videoUrl,
+        prompt: prompt.trim(),
+        aspectRatio: last?.aspectRatio || aspectRatio,
+        duration: result.duration,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        sourceImage: continuing ? last!.sourceImage : selectedImage,
+        season: selectedSeason,
+        weather: selectedWeather,
+        cost: estimatedCost.display,
+        engine: 'omni',
+        storyId: last ? last.storyId : id,
+        sceneNumber: last ? currentStoryScenes.length + 1 : 1,
+        interactionId: result.interactionId,
+        includeKhalle,
+        audioMode,
+        silentTalk,
+        storyTitle: last?.storyTitle,
+        ...castFieldsOf(last),
+      };
+      setSessionCost((prev) => prev + secs * estimatedCost.ratePerSec);
+      const placed = last ? replaceInStory(last.id, [last, scene]) : undefined;
+      if (!placed) setVideoHistory((prev) => [scene, ...prev]);
+      setCurrentVideo(placed?.find((v) => v.id === scene.id) || scene);
+      setCompareMode('video');
+      setSceneRefs([]);
+    } catch (err: any) {
+      console.error('End-on-picture error:', err);
+      setErrorMessage(`The scene could not be made: ${err?.message || 'unknown error'}`);
+    } finally {
+      setIsGenerating(false);
+      setProgressPercent(0);
     }
   };
 
@@ -3704,6 +3833,96 @@ export default function App() {
                   placeholder="Example: Khalle wakes up, stretches and hops out of the burrow into the snow."
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 resize-y"
                 />
+              </div>
+
+              {/* Reference pictures for this scene: what Gemini cannot see yet (e.g. the wider view) */}
+              <div
+                data-scene-refs
+                tabIndex={0}
+                aria-label="Reference pictures for this scene"
+                onDragOver={(e) => {
+                  if (!e.dataTransfer.types.includes('Files')) return;
+                  e.preventDefault();
+                  setRefsDropHover(true);
+                }}
+                onDragLeave={() => setRefsDropHover(false)}
+                onDrop={(e) => {
+                  setRefsDropHover(false);
+                  const files = [...(e.dataTransfer.files || [])].filter((f) => f.type.startsWith('image/'));
+                  if (!files.length) return;
+                  e.preventDefault();
+                  files.forEach((f) => addSceneRef(f));
+                }}
+                className={`flex flex-col gap-2.5 rounded-xl p-3 border outline-none focus:border-emerald-500 ${refsDropHover ? 'border-emerald-400 bg-emerald-950/40' : 'border-slate-800 bg-slate-950'}`}
+              >
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-sm font-semibold text-white">Reference pictures for this scene <span className="text-slate-400 font-normal">(optional)</span></span>
+                  <span className="text-xs text-slate-400">
+                    {continuesLastScene
+                      ? 'Paste (Cmd+V / Ctrl+V) or drop a picture of what Gemini cannot see yet, for example the wider view when the camera zooms out.'
+                      : 'Click here and paste (Cmd+V / Ctrl+V), or drop a picture, for example the place or the others around.'}
+                  </span>
+                </div>
+                {sceneRefs.map((r) => (
+                  <div key={r.id} className="flex gap-3 items-start border-t border-slate-800 pt-2.5">
+                    <img src={r.image} alt="Reference picture" className="w-14 h-20 rounded-lg object-cover shrink-0" />
+                    <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+                      <label className="sr-only" htmlFor={`ref-label-${r.id}`}>What the picture shows</label>
+                      <input
+                        id={`ref-label-${r.id}`}
+                        value={r.label}
+                        maxLength={120}
+                        onChange={(e) => setSceneRefs((list) => list.map((x) => (x.id === r.id ? { ...x, label: e.target.value } : x)))}
+                        placeholder="What it shows, e.g. the ring of rabbits under the tree"
+                        className="min-h-[36px] bg-slate-900 border border-slate-700 rounded-lg px-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                      />
+                      <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={r.endHere}
+                          onChange={(e) =>
+                            setSceneRefs((list) => list.map((x) => ({ ...x, endHere: x.id === r.id ? e.target.checked : false })))
+                          }
+                          className="accent-emerald-500 w-4 h-4"
+                        />
+                        End exactly on this picture
+                      </label>
+                      {r.endHere && (
+                        <p className="text-xs text-amber-200">
+                          The scene starts {continuesLastScene ? `on the end of Scene ${nextSceneNumber - 1}` : 'on the start picture'} and finishes on this picture (up to 10 s). In this mode Gemini gets only the two pictures and your text; no character card or other references.
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSceneRefs((list) => list.filter((x) => x.id !== r.id))}
+                      aria-label="Remove this reference picture"
+                      className="w-9 h-9 rounded-lg border border-slate-700 text-slate-300 hover:text-rose-300 hover:border-rose-500/60 cursor-pointer shrink-0"
+                    >
+                      <X className="w-4 h-4 mx-auto" />
+                    </button>
+                  </div>
+                ))}
+                {sceneRefs.length < 3 && (
+                  <div className="flex flex-wrap gap-2">
+                    <label className="min-h-[36px] px-3 rounded-lg border border-slate-700 text-sm text-slate-200 hover:border-emerald-500 cursor-pointer flex items-center gap-1.5">
+                      <Upload className="w-3.5 h-3.5 text-slate-400" /> Add picture
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        className="hidden"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (f) addSceneRef(f);
+                          e.target.value = '';
+                        }}
+                      />
+                    </label>
+                    <button type="button" onClick={pasteSceneRefFromClipboard} className="min-h-[36px] px-3 rounded-lg border border-slate-700 text-sm text-slate-200 hover:border-emerald-500 cursor-pointer">
+                      Paste picture
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Talks without words: mouth and gestures as in speech, no voice (for a voice-over later) */}

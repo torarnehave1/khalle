@@ -11,6 +11,7 @@ import { quotaState, recentGenerationLogs, recordGenerationLog, type GenerationL
 import {
   formatProductionDirectives,
   castDirective,
+  sceneReferenceDirective,
   excludesKhalle,
   getCharacterDirective,
   resolveReferenceImages,
@@ -192,7 +193,7 @@ The following ${resolvedImages.length} reference images are attached in order in
     });
   }
 
-  let fullDirectives = getCharacterDirective(body, resolvedImages) + castDirective(body);
+  let fullDirectives = getCharacterDirective(body, resolvedImages) + castDirective(body) + sceneReferenceDirective(body);
   fullDirectives += formatProductionDirectives(body, resolvedImages);
 
   fullDirectives += atmosphereDirective(prompt, season, weather);
@@ -524,7 +525,7 @@ The following ${resolvedImages.length} reference images are attached in order in
     });
   }
 
-  let fullDirectives = getCharacterDirective(body, resolvedImages) + castDirective(body);
+  let fullDirectives = getCharacterDirective(body, resolvedImages) + castDirective(body) + sceneReferenceDirective(body);
   fullDirectives += formatProductionDirectives(body, resolvedImages);
 
   fullDirectives += atmosphereDirective(continuationPrompt, season, weather);

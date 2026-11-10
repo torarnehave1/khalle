@@ -185,6 +185,14 @@ export function isTransformationRequest(body: any): boolean {
 export const isNoSymbolRequest = (body: any): boolean => body?.customEmblemType === 'none';
 
 /** The story's approved main character (character card): keep exactly that look in every frame. */
+/** Extra pictures the user gave for one scene: how the place and the characters around look. */
+export function sceneReferenceDirective(body: any): string {
+  const refs: string[] = Array.isArray(body?.sceneReferenceLabels) ? body.sceneReferenceLabels.filter((x: any) => typeof x === 'string') : [];
+  if (!refs.length) return '';
+  const list = refs.map((l, i) => `${i + 1}. ${l.trim() || 'The wider view of the scene'}`).join('\n');
+  return `\n\n[SCENE REFERENCE PICTURES]:\nThe attached SCENE REFERENCE image(s) show how the place and the characters around look beyond what the start frame shows:\n${list}\nWhen the camera moves, turns or zooms out, the place, its layout, the light and the characters around must match these pictures. They are not the first frame: the video still starts where it is told to start.`;
+}
+
 export function castDirective(body: any): string {
   const d = typeof body?.castDescription === 'string' ? body.castDescription.trim() : '';
   if (!d) return '';
@@ -199,7 +207,7 @@ export function getCharacterDirective(body: any, resolvedImages?: ResolvedImage[
   if (excludesKhalle(body)) {
     // The green rabbit is not named here: naming a character in a prohibition tends to summon it.
     return `[CHARACTERS IN THIS SCENE]:
-Show only the characters seen in the start frame and the characters the scene text describes.
+Show only the characters seen in the start frame, in any SCENE REFERENCE pictures, and the characters the scene text describes.
 Do NOT add any other character at any moment, not even small, distant or in the background.`;
   }
   if (isNoSymbolRequest(body)) {
@@ -612,6 +620,15 @@ export async function resolveReferenceImages(body: any): Promise<ResolvedImage[]
     // client states the role, e.g. "the video must start on this frame".
     if (ref.category === 'continuity_frame') {
       return { role: ref.role || ref.label || 'Continuity frame', desc: ref.description || '', isFriend: false, isPicture: false };
+    }
+    // A picture the user added for this one scene (the wider view, the place, the others around).
+    if (ref.category === 'scene_reference') {
+      return {
+        role: `SCENE REFERENCE: ${ref.label || 'the wider view of the scene'}`,
+        desc: 'How the place and the characters around look when the camera shows more of the scene. Match it when the camera moves or zooms out.',
+        isFriend: false,
+        isPicture: false,
+      };
     }
     // The story's approved character card (set by the user with "Save this character").
     if (ref.category === 'main_character') {
