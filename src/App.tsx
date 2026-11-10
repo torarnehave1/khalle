@@ -2977,7 +2977,29 @@ export default function App() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5">
+          <div className="flex flex-wrap items-center justify-end gap-2.5 min-w-0">
+            {/* Khalle in this scene (same switch as under the symbol card) */}
+            <button
+              type="button"
+              role="switch"
+              aria-checked={includeKhalle}
+              onClick={() => setIncludeKhalle((v) => !v)}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer border ${
+                includeKhalle
+                  ? 'bg-emerald-950/60 hover:bg-emerald-900/80 text-emerald-200 border-emerald-700/50'
+                  : 'bg-amber-950/70 hover:bg-amber-900/80 text-amber-200 border-amber-500/70'
+              }`}
+              title={
+                includeKhalle
+                  ? 'Khalle is in the scene: his pictures and the green-rabbit rule are sent. Click to leave him out'
+                  : 'Khalle is left out: no Khalle pictures, symbol or green-rabbit rule are sent. Click to put him back'
+              }
+            >
+              <span className={`relative w-7 h-3.5 rounded-full shrink-0 ${includeKhalle ? 'bg-emerald-500' : 'bg-slate-600'}`}>
+                <span className={`absolute top-0.5 left-0.5 w-2.5 h-2.5 rounded-full bg-white transition-transform ${includeKhalle ? 'translate-x-3.5' : ''}`} />
+              </span>
+              <span>{includeKhalle ? 'Khalle in scene' : 'Khalle left out'}</span>
+            </button>
             {/* Live Atmosphere Badge */}
             <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800/80 border border-slate-700/60 text-xs">
               <span className="text-base">{currentSeasonObj.icon}</span>
@@ -3072,6 +3094,7 @@ export default function App() {
               <span className="hidden md:inline">{activeEmblem.name}</span>
               <span className="md:hidden">Symbol</span>
             </button>
+
 
             {/* Upload Video Clip Button */}
             <button
