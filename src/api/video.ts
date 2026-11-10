@@ -41,9 +41,15 @@ const WEATHER_LOOK: Record<string, string> = {
   rainbow: 'a rainbow in the sky after rain',
 };
 
-export function atmosphereDirective(prompt: string, season?: string, weather?: string): string {
-  // The app's own preset prompts already end with "The scene is set in <season> … The weather features …".
-  if (/the scene is set in /i.test(prompt)) return '';
+// The app's preset prompts end with "The scene is set in <season> with … The weather features …".
+// That sentence can be stale (the season picked later), so it is taken out and the directive below,
+// built from the season and weather picked now, is sent instead.
+const COMPOSED_ATMOSPHERE = /\s*The scene is set in [^.]*\.(\s*The weather features [^.]*\.)?/gi;
+export function withoutComposedAtmosphere(prompt: string): string {
+  return prompt.replace(COMPOSED_ATMOSPHERE, '').trim();
+}
+
+export function atmosphereDirective(_prompt: string, season?: string, weather?: string): string {
   const s = season && SEASON_LOOK[season];
   const w = weather && WEATHER_LOOK[weather];
   if (!s && !w) return '';
@@ -179,7 +185,7 @@ The following ${resolvedImages.length} reference images are attached in order in
   fullDirectives += atmosphereDirective(prompt, season, weather);
   fullDirectives += audioDirective(audioMode, 'video');
 
-  const sanitizedPrompt = sanitizePromptToImageReference(prompt.trim(), resolvedImages);
+  const sanitizedPrompt = sanitizePromptToImageReference(withoutComposedAtmosphere(prompt), resolvedImages);
   const lockedPrompt = `${resolvedImages.length ? `${imageManifest}\n\n` : ''}${fullDirectives}\n\n[ANIMATION SCENE ACTION DIRECTIVE]:\n${sanitizedPrompt}`;
 
   inputParts.push({
@@ -509,7 +515,7 @@ The following ${resolvedImages.length} reference images are attached in order in
   fullDirectives += atmosphereDirective(continuationPrompt, season, weather);
   fullDirectives += audioDirective(audioMode, 'continuation');
 
-  const sanitizedContinuationPrompt = sanitizePromptToImageReference(continuationPrompt.trim(), resolvedImages);
+  const sanitizedContinuationPrompt = sanitizePromptToImageReference(withoutComposedAtmosphere(continuationPrompt), resolvedImages);
   const lockedContinuationPrompt = `${resolvedImages.length ? `${imageManifest}\n\n` : ''}${fullDirectives}\n\n[SCENE CONTINUATION DIRECTIVE]:\n${sanitizedContinuationPrompt}`;
   inputParts.push({
     type: 'text',

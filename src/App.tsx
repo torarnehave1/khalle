@@ -796,6 +796,8 @@ export default function App() {
   const [audioMode, setAudioMode] = useState<'with_sound' | 'silent'>('with_sound');
   /** Off: Khalle's pictures, belly symbol and identity rule are left out of the request (for scenes about other characters). */
   const [includeKhalle, setIncludeKhalle] = useState(true);
+  /** The "More options" panel in step 2 (camera, ideas, clothes, format, sound, Khalle's pictures). */
+  const [showMoreOptions, setShowMoreOptions] = useState(false);
   const [showStylistModal, setShowStylistModal] = useState<boolean>(false);
   const [showTraitsTooltip, setShowTraitsTooltip] = useState<boolean>(false);
 
@@ -2960,33 +2962,26 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500/30">
-      {/* Top Navigation Bar */}
-      <header className="border-b border-slate-800/80 bg-slate-900/90 backdrop-blur-md sticky top-0 z-40 px-4 lg:px-8 py-3.5">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
+      {/* Top bar: name, Khalle switch, Stories, Log */}
+      <header className="border-b border-slate-800/80 bg-slate-900/90 backdrop-blur-md sticky top-0 z-40 px-4 lg:px-8 py-3">
+        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <AppLogo />
             <div>
-              <div className="flex items-center gap-2">
-                <h1 className="font-bold text-lg text-white tracking-tight flex items-center gap-1.5">
-                  Khalle <span className="text-emerald-400 text-sm font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">AI Video</span>
-                </h1>
-              </div>
-              <p className="text-xs text-slate-400 hidden sm:block">
-                Animate photos into videos with seasonal & weather controls via <span className="text-emerald-400 font-mono">gemini-omni-1.2-flash</span>
-              </p>
+              <h1 className="font-bold text-lg text-white tracking-tight">Khalle</h1>
+              <p className="text-xs text-slate-400 hidden sm:block">Videos of the green plush rabbit</p>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center justify-end gap-2.5 min-w-0">
-            {/* Khalle in this scene (same switch as under the symbol card) */}
+          <nav className="flex flex-wrap items-center justify-end gap-2 min-w-0" aria-label="Main">
             <button
               type="button"
               role="switch"
               aria-checked={includeKhalle}
               onClick={() => setIncludeKhalle((v) => !v)}
-              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer border ${
+              className={`min-h-[40px] px-3 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all cursor-pointer border ${
                 includeKhalle
-                  ? 'bg-emerald-950/60 hover:bg-emerald-900/80 text-emerald-200 border-emerald-700/50'
+                  ? 'bg-emerald-950/60 hover:bg-emerald-900/80 text-emerald-200 border-emerald-600/60'
                   : 'bg-amber-950/70 hover:bg-amber-900/80 text-amber-200 border-amber-500/70'
               }`}
               title={
@@ -2995,318 +2990,364 @@ export default function App() {
                   : 'Khalle is left out: no Khalle pictures, symbol or green-rabbit rule are sent. Click to put him back'
               }
             >
-              <span className={`relative w-7 h-3.5 rounded-full shrink-0 ${includeKhalle ? 'bg-emerald-500' : 'bg-slate-600'}`}>
-                <span className={`absolute top-0.5 left-0.5 w-2.5 h-2.5 rounded-full bg-white transition-transform ${includeKhalle ? 'translate-x-3.5' : ''}`} />
+              <span className={`relative w-8 h-4 rounded-full shrink-0 ${includeKhalle ? 'bg-emerald-500' : 'bg-slate-600'}`}>
+                <span className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white transition-transform ${includeKhalle ? 'translate-x-4' : ''}`} />
               </span>
               <span>{includeKhalle ? 'Khalle in scene' : 'Khalle left out'}</span>
             </button>
-            {/* Live Atmosphere Badge */}
-            <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800/80 border border-slate-700/60 text-xs">
-              <span className="text-base">{currentSeasonObj.icon}</span>
-              <span className="font-medium text-slate-300">{currentSeasonObj.name}</span>
-              <span className="text-slate-500">•</span>
-              <span className="text-base">{currentWeatherObj.icon}</span>
-              <span className="font-medium text-slate-300">{currentWeatherObj.name}</span>
-            </div>
-
-            <button
-              onClick={() => setSoundEnabled(!soundEnabled)}
-              title={soundEnabled ? 'Mute jump SFX' : 'Enable jump SFX'}
-              className="p-2 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition-colors text-xs flex items-center gap-1 cursor-pointer"
-            >
-              {soundEnabled ? <Volume2 className="w-4 h-4 text-emerald-400" /> : <VolumeX className="w-4 h-4 text-slate-500" />}
-              <span className="hidden xl:inline">{soundEnabled ? 'SFX On' : 'SFX Muted'}</span>
-            </button>
-
             <button
               type="button"
-              onClick={() => setShowScriptModal(true)}
-              className="px-2.5 py-1.5 bg-gradient-to-r from-amber-950/70 via-purple-950/70 to-slate-900 hover:from-amber-900/80 hover:to-purple-900/80 text-amber-200 border border-amber-500/50 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
-              title="Add a Script or Story to generate several video scenes"
+              onClick={() => document.getElementById('stories')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+              className="min-h-[40px] px-3 rounded-lg text-sm font-medium border border-slate-700 text-slate-200 hover:border-emerald-500 cursor-pointer"
             >
-              <ScrollText className="w-3.5 h-3.5 text-amber-400" />
-              <span className="hidden sm:inline">Script to Story</span>
+              Stories ({stories.length})
             </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setDirectorTarget('main');
-                setShowDirectorModal(true);
-              }}
-              className="px-2.5 py-1.5 bg-purple-950/60 hover:bg-purple-900/80 text-purple-200 border border-purple-700/50 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
-              title="Open AI Director Scene Suggestions"
-            >
-              <Clapperboard className="w-3.5 h-3.5 text-purple-400" />
-              <span className="hidden sm:inline">AI Director</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setDirectorTarget('main');
-                setShowStylistModal(true);
-              }}
-              className="px-2.5 py-1.5 bg-purple-950/60 hover:bg-purple-900/80 text-purple-200 border border-purple-700/50 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
-              title="Open AI Stylist: Wardrobe, Costumes & Shoot Guides"
-            >
-              <Shirt className="w-3.5 h-3.5 text-purple-400" />
-              <span className="hidden sm:inline">AI Stylist</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setShowGlossaryModal(true)}
-              className="px-2.5 py-1.5 bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 border border-slate-700/60 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer"
-              title="Camera Angles & Zooming Terms Guide"
-            >
-              <Camera className="w-3.5 h-3.5 text-amber-400" />
-              <span className="hidden sm:inline">Camera Guide</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setShowWatermarkModal(true)}
-              className="px-2.5 py-1.5 bg-slate-800/80 hover:bg-slate-700/80 text-slate-200 border border-slate-700/60 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
-              title="Configure Logo Watermark on video (Gear Icon)"
-            >
-              <Settings className="w-3.5 h-3.5 text-emerald-400" />
-              <span className="hidden md:inline">Logo Watermark</span>
-              <span
-                className={`text-[9px] px-1.5 py-0.2 rounded font-mono font-bold ${
-                  watermarkConfig.enabled
-                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                    : 'bg-slate-700 text-slate-400'
-                }`}
-              >
-                {watermarkConfig.enabled ? 'ON' : 'OFF'}
-              </span>
-            </button>
-
-            {/* Belly Emblem / Symbol Studio Button */}
-            <button
-              type="button"
-              onClick={() => setShowEmblemModal(true)}
-              className="px-2.5 py-1.5 bg-cyan-950/60 hover:bg-cyan-900/80 text-cyan-200 border border-cyan-700/50 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
-              title="Configure Belly Emblem / Symbol Studio"
-            >
-              <Compass className="w-3.5 h-3.5 text-cyan-400" />
-              <span className="hidden md:inline">{activeEmblem.name}</span>
-              <span className="md:hidden">Symbol</span>
-            </button>
-
-
-            {/* Upload Video Clip Button */}
-            <button
-              type="button"
-              onClick={() => openUploadSceneModal(currentVideo, 'after')}
-              className="px-2.5 py-1.5 bg-blue-950/60 hover:bg-blue-900/80 text-blue-200 border border-blue-700/50 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
-              title="Upload video clip to insert before, after, or append to storyboard"
-            >
-              <Upload className="w-3.5 h-3.5 text-blue-400" />
-              <span className="hidden md:inline">Upload Video</span>
-            </button>
-
-            {/* Generation Diagnostic Log Buttons */}
-            <div className="flex items-center gap-1 bg-indigo-950/50 p-0.5 rounded-lg border border-indigo-700/50">
+            <div className="flex items-center rounded-lg border border-slate-700">
               <button
                 type="button"
                 onClick={handleCopyGenerationLogDirect}
-                className="px-2.5 py-1.5 hover:bg-indigo-900/70 text-indigo-200 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
-                title="Copy Generation Diagnostic Log to clipboard to paste into chat"
+                className="min-h-[40px] px-3 text-sm font-medium text-slate-200 hover:text-emerald-200 flex items-center gap-1.5 cursor-pointer"
+                title="Copy the log of the last generation, to paste into a chat"
               >
-                <FileText className="w-3.5 h-3.5 text-indigo-400" />
-                <span className="hidden lg:inline">Copy Log</span>
+                <FileText className="w-4 h-4 text-slate-400" />
+                <span>Log</span>
               </button>
               <button
                 type="button"
                 onClick={() => fetchLatestLog(true)}
-                className="p-1.5 hover:bg-indigo-900/70 text-indigo-300 rounded-md transition-colors cursor-pointer"
-                title="Inspect reference images and prompt manifest sent to Gemini Omni Flash"
+                className="min-h-[40px] px-2.5 border-l border-slate-700 text-slate-300 hover:text-emerald-200 cursor-pointer"
+                title="See the pictures and text sent to Gemini"
+                aria-label="See the pictures and text sent to Gemini"
               >
-                <Eye className="w-3.5 h-3.5" />
+                <Eye className="w-4 h-4" />
               </button>
             </div>
-
-            <button
-              onClick={handlePhysicsJump}
-              className="px-3 py-1.5 bg-emerald-950/60 hover:bg-emerald-900/80 text-emerald-300 border border-emerald-700/50 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all shadow-sm active:scale-95 cursor-pointer"
-            >
-              <Zap className="w-3.5 h-3.5 text-lime-400" />
-              <span>Bounce ({jumpCount})</span>
-            </button>
-
-            <button
-              onClick={handleTriggerGenerate}
-              disabled={isGenerating}
-              className="px-4 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-semibold text-xs sm:text-sm rounded-lg shadow-md shadow-emerald-500/20 flex items-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 cursor-pointer"
-            >
-              {isGenerating ? (
-                <>
-                  <RefreshCw className="w-4 h-4 animate-spin text-slate-950" />
-                  <span>Generating Video...</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-4 h-4 text-slate-950 fill-current" />
-                  <span>Make Rabbit Jump</span>
-                </>
-              )}
-            </button>
-          </div>
+          </nav>
         </div>
       </header>
 
       {/* Main Studio Layout */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 lg:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column: Image, Presets, Season & Weather, Parameters (5 cols) */}
-        <div className="lg:col-span-5 flex flex-col gap-5">
-          {/* Active Image Card with Season & Weather Ambiance Visualizer */}
-          <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-xl flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                <Layers className="w-3.5 h-3.5 text-emerald-400" /> Active Subject
-              </span>
-              <div className="flex items-center gap-2">
-                {!isDefaultImage && (
-                  <button
-                    onClick={handleResetToRabbit}
-                    className="text-xs text-slate-400 hover:text-emerald-400 flex items-center gap-1 transition-colors"
-                  >
-                    <RotateCcw className="w-3 h-3" /> Reset Rabbit
+        {/* Left column: 1 Who and where, 2 What happens, Generate */}
+        <section aria-label="Make a scene" className="lg:col-span-5 flex flex-col bg-slate-900/80 border border-slate-800 rounded-2xl shadow-xl self-start">
+          <div className="p-4 sm:p-5 flex flex-col gap-5">
+            {/* Step 1: who and where */}
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center gap-2.5">
+                <span className="w-6 h-6 rounded-full bg-emerald-400 text-slate-950 text-xs font-bold flex items-center justify-center">1</span>
+                <h2 className="text-base font-semibold text-white">Who and where</h2>
+              </div>
+              <div className="flex gap-3.5 items-center bg-slate-950 border border-slate-800 rounded-xl p-3">
+                <img src={selectedImage} alt="Start picture" className="w-20 h-24 rounded-lg object-cover shrink-0" />
+                <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Start picture</span>
+                  <span className="text-sm text-slate-200 truncate">{isDefaultImage ? 'Khalle in a spring meadow' : 'Your own picture'}</span>
+                  <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept="image/jpeg,image/png,image/webp" className="hidden" />
+                  <div className="flex flex-wrap gap-2 mt-0.5">
+                    <button type="button" onClick={() => fileInputRef.current?.click()} className="min-h-[36px] px-3 rounded-lg border border-slate-700 text-sm text-slate-200 hover:border-emerald-500 cursor-pointer flex items-center gap-1.5">
+                      <Upload className="w-3.5 h-3.5 text-slate-400" /> Change picture
+                    </button>
+                    {!isDefaultImage && (
+                      <button type="button" onClick={handleResetToRabbit} className="min-h-[36px] px-3 rounded-lg text-sm text-slate-400 hover:text-emerald-300 cursor-pointer">
+                        Use Khalle's picture
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+              {includeKhalle ? (
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span className="text-slate-300">Belly symbol: <strong className="text-white">{activeEmblem.type === 'none' ? 'None' : activeEmblem.name}</strong></span>
+                  <button type="button" onClick={() => setShowEmblemModal(true)} className="min-h-[36px] px-3 rounded-lg border border-slate-700 text-sm text-slate-200 hover:border-emerald-500 cursor-pointer">
+                    Change symbol
                   </button>
-                )}
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  onChange={handleFileUpload}
-                  accept="image/jpeg,image/png,image/webp"
-                  className="hidden"
-                />
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
-                >
-                  <Upload className="w-3 h-3 text-slate-400" />
-                  <span>Upload Photo</span>
-                </button>
-              </div>
+                </div>
+              ) : (
+                <p className="text-sm text-amber-200 bg-amber-950/40 border border-amber-700/60 rounded-lg p-2.5">
+                  Khalle is left out. Only the characters in the start picture and your text are shown.
+                </p>
+              )}
             </div>
 
-            {/* Thumbnail preview with atmospheric overlays and interactive bounce */}
-            <div className="relative group rounded-xl overflow-hidden bg-slate-950 border border-slate-800 flex items-center justify-center min-h-[220px] max-h-[280px]">
-              {/* Dynamic Seasonal & Weather Background Effects */}
-              {selectedSeason === 'winter' && (
-                <div className="absolute inset-0 pointer-events-none bg-blue-900/10 backdrop-contrast-105 z-10">
-                  <div className="absolute inset-0 bg-[radial-gradient(#fff_1px,transparent_1px)] [background-size:16px_16px] opacity-40 animate-pulse" />
-                </div>
-              )}
-              {selectedSeason === 'autumn' && (
-                <div className="absolute inset-0 pointer-events-none bg-gradient-to-t from-amber-950/30 via-orange-950/10 to-transparent z-10" />
-              )}
-              {selectedWeather === 'sunset' && (
-                <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-purple-950/25 via-pink-950/15 to-amber-950/25 mix-blend-color z-10" />
-              )}
-              {selectedWeather === 'rainbow' && (
-                <div className="absolute top-0 inset-x-0 h-16 pointer-events-none bg-gradient-to-r from-red-500/10 via-yellow-500/10 via-green-500/10 to-blue-500/10 blur-sm z-10" />
-              )}
-              {selectedWeather === 'rain' && (
-                <div className="absolute inset-0 pointer-events-none bg-slate-900/20 z-10">
-                  <div className="absolute inset-0 bg-[linear-gradient(to_bottom,transparent_90%,#60a5fa_100%)] [background-size:24px_24px] opacity-30" />
-                </div>
-              )}
+            <div className="h-px bg-slate-800" />
 
-              <motion.img
-                src={selectedImage}
-                alt="Rabbit to animate"
-                animate={
-                  isPhysicsJumping
-                    ? {
-                        y: [-20, -70, 0],
-                        rotate: [0, -6, 6, 0],
-                        scale: [1, 1.08, 0.96, 1],
-                      }
-                    : { y: 0, rotate: 0, scale: 1 }
-                }
-                transition={{ duration: 0.55, ease: 'easeInOut' }}
-                onClick={handlePhysicsJump}
-                className="max-h-[270px] w-auto object-contain cursor-pointer transition-transform hover:brightness-105 z-0"
-                title="Click me to make me jump!"
-              />
-
-              {/* Floating particles on jump */}
-              <AnimatePresence>
-                {particles.map((p) => (
-                  <motion.span
-                    key={p.id}
-                    initial={{ opacity: 1, x: 0, y: 0, scale: 0.8 }}
-                    animate={{ opacity: 0, x: p.x, y: p.y, scale: 1.4 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.9, ease: 'easeOut' }}
-                    className="absolute text-xl pointer-events-none select-none z-30"
-                  >
-                    {p.char}
-                  </motion.span>
-                ))}
-              </AnimatePresence>
-
-              {/* Interactive badge overlay */}
-              <div
-                onClick={handlePhysicsJump}
-                className="absolute bottom-2.5 inset-x-3 py-1.5 px-3 rounded-lg bg-slate-950/85 backdrop-blur-md border border-slate-700/60 flex items-center justify-between text-xs text-slate-300 cursor-pointer hover:bg-slate-900/95 transition-colors z-20"
-              >
-                <div className="flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                  <span className="font-medium text-slate-200">
-                    {isDefaultImage ? 'Meadow Rabbit' : 'Uploaded Photo'}
-                  </span>
-                  <span className="text-[11px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 font-mono">
-                    {currentSeasonObj.name} • {currentWeatherObj.name}
-                  </span>
-                </div>
-                <span className="text-[11px] text-emerald-400 font-semibold flex items-center gap-1">
-                  Click to bounce 🐾
-                </span>
+            {/* Step 2: what happens */}
+            <div className="flex flex-col gap-4">
+              <div className="flex items-center gap-2.5">
+                <span className="w-6 h-6 rounded-full bg-emerald-400 text-slate-950 text-xs font-bold flex items-center justify-center">2</span>
+                <h2 className="text-base font-semibold text-white">What happens</h2>
               </div>
-            </div>
-
-            {/* MULTI-ASSET REFERENCE STUDIO & CHARACTER MODEL KIT */}
-            <div className="pt-3 border-t border-slate-800 flex flex-col gap-2.5">
-              {/* Likeness Lock Header & Badge */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                  <span className="text-xs font-bold text-slate-200">
-                    Character Likeness Lock (100% Fidelity)
-                  </span>
-                </div>
-                <div className="relative">
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <label htmlFor="scene-text" className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">What happens in the scene</label>
                   <button
                     type="button"
-                    onClick={() => setShowTraitsTooltip(!showTraitsTooltip)}
-                    className="text-[11px] text-emerald-400 hover:text-emerald-300 flex items-center gap-1 font-semibold cursor-pointer"
+                    onClick={() => {
+                      setDirectorTarget('main');
+                      setShowDirectorModal(true);
+                    }}
+                    className="text-sm font-medium text-emerald-300 hover:text-emerald-200 cursor-pointer"
                   >
-                    <span>Locked Traits</span>
-                    <Info className="w-3 h-3" />
+                    Help me write it
                   </button>
-                  {showTraitsTooltip && (
-                    <div className="absolute right-0 top-6 z-30 w-72 p-3 bg-slate-900 border border-emerald-500/40 rounded-xl shadow-2xl text-[11px] text-slate-300 space-y-1.5 animate-fadeIn">
-                      <div className="font-bold text-emerald-300 flex items-center gap-1">
-                        <Check className="w-3.5 h-3.5" /> Zero-Drift Physical Features:
-                      </div>
-                      <ul className="space-y-1 text-slate-400">
-                        <li>• <strong>Tall upright ears</strong> (never drooping or lop-eared)</li>
-                        <li>• <strong>Open cheerful grin</strong> with single white buck tooth centered</li>
-                        <li>• <strong>Light-pink snout</strong> with embroidered blue eyes</li>
-                        <li>• <strong>{activeEmblem.name}</strong> on oval pink belly</li>
-                        <li>• <strong>Bright red fleece boots</strong> & pink neck scarf</li>
-                      </ul>
-                    </div>
-                  )}
                 </div>
+                <textarea
+                  id="scene-text"
+                  value={prompt}
+                  onChange={(e) => {
+                    setPrompt(e.target.value);
+                    setAutoCompose(false);
+                  }}
+                  rows={4}
+                  placeholder="Example: Khalle wakes up, stretches and hops out of the burrow into the snow."
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 resize-y"
+                />
               </div>
 
-              {/* 3 Reference Angles Cards */}
+              <div className="flex flex-col gap-2">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Season</span>
+                <div className="flex flex-wrap gap-2">
+                  {SEASONS.map((s) => (
+                    <button key={s.id} type="button" aria-pressed={selectedSeason === s.id} onClick={() => handleSeasonChange(s.id)} className={`min-h-[36px] px-3.5 rounded-full border text-sm font-medium transition-colors cursor-pointer ${selectedSeason === s.id ? 'bg-emerald-950/70 border-emerald-400 text-emerald-100' : 'bg-slate-950 border-slate-700 text-slate-300 hover:border-slate-500'}`}>
+                      {s.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex flex-col gap-2">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Weather</span>
+                <div className="flex flex-wrap gap-2">
+                  {WEATHER_OPTIONS.map((w) => (
+                    <button key={w.id} type="button" aria-pressed={selectedWeather === w.id} onClick={() => handleWeatherChange(w.id)} className={`min-h-[36px] px-3.5 rounded-full border text-sm font-medium transition-colors cursor-pointer ${selectedWeather === w.id ? 'bg-emerald-950/70 border-emerald-400 text-emerald-100' : 'bg-slate-950 border-slate-700 text-slate-300 hover:border-slate-500'}`}>
+                      {({ sunny: 'Sunny', snowing: 'Snow', rain: 'Rain', sunset: 'Sunset', misty: 'Mist', rainbow: 'Rainbow' } as Record<string, string>)[w.id] || w.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex flex-col gap-2">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Length</span>
+                <div className="flex flex-wrap gap-2">
+                  {(['5s', '10s', '15s'] as const).map((d) => (
+                    <button key={d} type="button" aria-pressed={duration === d} onClick={() => setDuration(d)} className={`min-h-[36px] px-3.5 rounded-full border text-sm font-medium transition-colors cursor-pointer ${duration === d ? 'bg-emerald-950/70 border-emerald-400 text-emerald-100' : 'bg-slate-950 border-slate-700 text-slate-300 hover:border-slate-500'}`}>
+                      {parseInt(d, 10)} s
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-slate-400">Longer story? Add more scenes after this one.</p>
+              </div>
+
+              {/* More options: everything a scene does not always need */}
+              <button
+                type="button"
+                aria-expanded={showMoreOptions}
+                onClick={() => setShowMoreOptions((v) => !v)}
+                className={`w-full min-h-[48px] px-3.5 rounded-xl border flex items-center justify-between text-sm font-medium cursor-pointer ${showMoreOptions ? 'bg-slate-950 border-emerald-500/70 text-white' : 'bg-slate-950 border-slate-700 text-slate-200 hover:border-slate-500'}`}
+              >
+                <span>
+                  More options <span className="text-slate-400 font-normal">· camera, ideas, clothes, format, sound</span>
+                </span>
+                <span aria-hidden="true" className="text-slate-400">{showMoreOptions ? '▴' : '▾'}</span>
+              </button>
+
+              {showMoreOptions && (
+                <div className="flex flex-col gap-5 bg-slate-950/60 border border-slate-800 rounded-xl p-3.5">
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Camera</span>
+                    <CinematographyToolbar
+                      currentPrompt={prompt}
+                      onUpdatePrompt={(newP) => {
+                        setPrompt(newP);
+                        setAutoCompose(false);
+                      }}
+                      onOpenDirectorModal={() => {
+                        setDirectorTarget('main');
+                        setShowDirectorModal(true);
+                      }}
+                      onOpenGlossary={() => setShowGlossaryModal(true)}
+                      season={selectedSeason}
+                      weather={selectedWeather}
+                      isExtension={false}
+                      previousPrompt={currentVideo?.prompt}
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-2">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Start from an idea</span>
+                    <p className="text-xs text-slate-400">Replaces your text with a ready-made scene you can edit.</p>
+            <div className="grid grid-cols-2 gap-2">
+              {JUMP_PRESETS.map((p) => {
+                const isActive = activePreset === p.id;
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => handleSelectPreset(p)}
+                    className={`text-left p-3 rounded-xl border transition-all flex flex-col justify-between gap-1 cursor-pointer ${
+                      isActive
+                        ? 'bg-emerald-950/40 border-emerald-500/80 shadow-md shadow-emerald-500/10'
+                        : 'bg-slate-950/60 border-slate-800 hover:border-slate-700 hover:bg-slate-800/40'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between w-full">
+                      <span className="text-xl">{p.icon}</span>
+                      <span className="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">
+                        {p.recommendedAspect}
+                      </span>
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-slate-200">{p.label}</div>
+                      <div className="text-[11px] text-slate-400 line-clamp-1">{p.tagline}</div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+                    <button type="button" onClick={() => setShowScriptModal(true)} className="self-start min-h-[36px] px-3 rounded-lg border border-slate-700 text-sm text-slate-200 hover:border-emerald-500 cursor-pointer flex items-center gap-1.5">
+                      <ScrollText className="w-3.5 h-3.5 text-amber-400" /> Write a whole story from a script
+                    </button>
+                  </div>
+
+                  <div className="flex flex-col gap-2">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Clothes, things and friends</span>
+              <div className="pt-2 border-t border-slate-800/80 flex flex-col gap-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <Shirt className="w-3.5 h-3.5 text-purple-400" />
+                    <span>Cast, Props & Wardrobe:</span>
+                    {activeStylistItems.length > 0 && (
+                      <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-purple-950 text-purple-300 border border-purple-700/50">
+                        {activeStylistItems.length} active
+                      </span>
+                    )}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    {activeStylistItems.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleClearAllStylistItems}
+                        className="text-[10px] text-slate-500 hover:text-red-400 transition-colors cursor-pointer"
+                      >
+                        Clear All
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setShowStylistModal(true)}
+                      className="text-[11px] text-purple-400 hover:text-purple-300 flex items-center gap-1 font-semibold transition-colors cursor-pointer"
+                    >
+                      <Wand2 className="w-3 h-3" />
+                      <span>Studio & Upload</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Active items badges */}
+                <div className="flex flex-wrap gap-1.5 min-h-[28px]">
+                  {activeStylistItems.map((item) => {
+                    const badgeStyles =
+                      item.category === 'character'
+                        ? 'bg-sky-950/70 border-sky-500/50 text-sky-200'
+                        : item.category === 'prop'
+                        ? 'bg-emerald-950/70 border-emerald-500/50 text-emerald-200'
+                        : 'bg-purple-950/70 border-purple-500/50 text-purple-200';
+                    return (
+                      <div
+                        key={item.id}
+                        className={`px-2 py-1 rounded-lg border text-xs flex items-center gap-1.5 shadow-sm ${badgeStyles}`}
+                      >
+                        <span>{item.icon}</span>
+                        <span className="font-semibold text-[11px]">{item.title}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveStylistItem(item.id)}
+                          className="hover:text-white p-0.5 ml-0.5 transition-colors cursor-pointer"
+                          title={`Remove ${item.title}`}
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    );
+                  })}
+
+                  {activeStylistItems.length === 0 && (
+                    <span className="text-[11px] text-slate-500 italic py-0.5">
+                      Standard bunny outfit active. Click presets below or open Studio to add clothing, props & companion characters!
+                    </span>
+                  )}
+                </div>
+
+                {/* Quick Toggle Presets */}
+                <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                  <span className="text-[10px] uppercase font-semibold text-slate-500 shrink-0">
+                    Quick Add:
+                  </span>
+                  {[
+                    PRESET_CLOTHING[0],
+                    PRESET_CLOTHING[1],
+                    PRESET_CLOTHING[2],
+                    PRESET_PROPS[0],
+                    PRESET_PROPS[1],
+                    PRESET_CHARACTERS[0],
+                    PRESET_CHARACTERS[1],
+                  ].map((preset) => {
+                    const isSelected = activeStylistItems.some((i) => i.id === preset.id);
+                    const tagClass =
+                      preset.category === 'character'
+                        ? isSelected
+                          ? 'bg-sky-600 text-white border-sky-400'
+                          : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-sky-500/50 hover:text-sky-200'
+                        : preset.category === 'prop'
+                        ? isSelected
+                          ? 'bg-emerald-600 text-white border-emerald-400'
+                          : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-emerald-500/50 hover:text-emerald-200'
+                        : isSelected
+                        ? 'bg-purple-600 text-white border-purple-400'
+                        : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-purple-500/50 hover:text-purple-200';
+                    return (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => handleToggleStylistItem(preset)}
+                        className={`px-2 py-0.5 rounded-md border text-[10px] font-medium flex items-center gap-1 transition-all cursor-pointer ${tagClass}`}
+                      >
+                        <span>{preset.icon}</span>
+                        <span>{preset.title}</span>
+                        {isSelected && <span className="text-[9px]">✓</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="flex flex-col gap-2">
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Format</span>
+                      <div className="flex flex-wrap gap-2">
+                        <button type="button" aria-pressed={aspectRatio === '9:16'} onClick={() => setAspectRatio('9:16')} className={`min-h-[36px] px-3.5 rounded-full border text-sm font-medium transition-colors cursor-pointer ${aspectRatio === '9:16' ? 'bg-emerald-950/70 border-emerald-400 text-emerald-100' : 'bg-slate-950 border-slate-700 text-slate-300 hover:border-slate-500'}`}>Tall 9:16</button>
+                        <button type="button" aria-pressed={aspectRatio === '16:9'} onClick={() => setAspectRatio('16:9')} className={`min-h-[36px] px-3.5 rounded-full border text-sm font-medium transition-colors cursor-pointer ${aspectRatio === '16:9' ? 'bg-emerald-950/70 border-emerald-400 text-emerald-100' : 'bg-slate-950 border-slate-700 text-slate-300 hover:border-slate-500'}`}>Wide 16:9</button>
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Sound</span>
+                      <div className="flex flex-wrap gap-2">
+                        <button type="button" aria-pressed={audioMode === 'with_sound'} onClick={() => setAudioMode('with_sound')} className={`min-h-[36px] px-3.5 rounded-full border text-sm font-medium transition-colors cursor-pointer ${audioMode === 'with_sound' ? 'bg-emerald-950/70 border-emerald-400 text-emerald-100' : 'bg-slate-950 border-slate-700 text-slate-300 hover:border-slate-500'}`}>On</button>
+                        <button type="button" aria-pressed={audioMode === 'silent'} onClick={() => setAudioMode('silent')} className={`min-h-[36px] px-3.5 rounded-full border text-sm font-medium transition-colors cursor-pointer ${audioMode === 'silent' ? 'bg-emerald-950/70 border-emerald-400 text-emerald-100' : 'bg-slate-950 border-slate-700 text-slate-300 hover:border-slate-500'}`}>Off</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-2">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Quality</span>
+                    <div className="flex flex-wrap gap-2">
+                      <button type="button" aria-pressed={resolution === '720p'} onClick={() => setResolution('720p')} className={`min-h-[36px] px-3.5 rounded-full border text-sm font-medium transition-colors cursor-pointer ${resolution === '720p' ? 'bg-emerald-950/70 border-emerald-400 text-emerald-100' : 'bg-slate-950 border-slate-700 text-slate-300 hover:border-slate-500'}`}>720p · $0.07 per second</button>
+                      <button type="button" aria-pressed={resolution === '1080p'} onClick={() => setResolution('1080p')} className={`min-h-[36px] px-3.5 rounded-full border text-sm font-medium transition-colors cursor-pointer ${resolution === '1080p' ? 'bg-emerald-950/70 border-emerald-400 text-emerald-100' : 'bg-slate-950 border-slate-700 text-slate-300 hover:border-slate-500'}`}>1080p · $0.12 per second</button>
+                    </div>
+                    <button type="button" onClick={() => setShowPricingModal(true)} className="self-start text-xs text-slate-400 hover:text-emerald-300 cursor-pointer">About the cost</button>
+                  </div>
+
+                  <div className="flex flex-col gap-2">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">How Khalle looks</span>
+                    <p className="text-xs text-slate-400">Pictures of Khalle sent with every scene so he keeps his look. Click a picture to stop sending it.</p>
               <div className="grid grid-cols-3 gap-2">
                 {referenceAssets
                   .filter((a) => a.category === 'character')
@@ -3343,8 +3384,6 @@ export default function App() {
                     </div>
                   ))}
               </div>
-
-              {/* Custom Belly Symbol / Emblem Studio Card */}
               <div className={`p-2.5 rounded-xl border flex flex-col gap-2.5 transition-all ${
                 isMorphingEnabled || activeEmblem.id === 'emblem-morph'
                   ? 'bg-cyan-950/40 border-cyan-500/40'
@@ -3475,496 +3514,16 @@ export default function App() {
                   )}
                 </div>
               </div>
+                  </div>
 
-              {/* Khalle in this scene: off for scenes about other characters */}
-              <div className="pt-2 border-t border-slate-800/80 flex flex-col gap-1.5">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Khalle in this scene</span>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={includeKhalle}
-                    aria-label="Khalle in this scene"
-                    onClick={() => setIncludeKhalle((v) => !v)}
-                    className={`relative w-10 h-5 rounded-full transition-colors cursor-pointer shrink-0 ${includeKhalle ? 'bg-emerald-500' : 'bg-slate-700'}`}
-                  >
-                    <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${includeKhalle ? 'translate-x-5' : ''}`} />
-                  </button>
-                </div>
-                <p className={`text-[10px] ${includeKhalle ? 'text-slate-500' : 'text-amber-300'}`}>
-                  {includeKhalle
-                    ? 'On: Khalle\'s pictures and the rule that the hero is the green rabbit are sent with every scene.'
-                    : 'Off: no Khalle pictures, belly symbol or green-rabbit rule are sent. Gemini shows only the characters in the start picture and your text. Applies to new scenes, extensions and corrections until you turn it back on.'}
-                </p>
-              </div>
-
-              {/* Production Cast, Props & Wardrobe Active Bar */}
-              <div className="pt-2 border-t border-slate-800/80 flex flex-col gap-2.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                    <Shirt className="w-3.5 h-3.5 text-purple-400" />
-                    <span>Cast, Props & Wardrobe:</span>
-                    {activeStylistItems.length > 0 && (
-                      <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-purple-950 text-purple-300 border border-purple-700/50">
-                        {activeStylistItems.length} active
-                      </span>
-                    )}
-                  </span>
-                  <div className="flex items-center gap-2">
-                    {activeStylistItems.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={handleClearAllStylistItems}
-                        className="text-[10px] text-slate-500 hover:text-red-400 transition-colors cursor-pointer"
-                      >
-                        Clear All
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => setShowStylistModal(true)}
-                      className="text-[11px] text-purple-400 hover:text-purple-300 flex items-center gap-1 font-semibold transition-colors cursor-pointer"
-                    >
-                      <Wand2 className="w-3 h-3" />
-                      <span>Studio & Upload</span>
+                  <div className="flex flex-col gap-2">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Logo on the video</span>
+                    <button type="button" onClick={() => setShowWatermarkModal(true)} className="self-start min-h-[36px] px-3 rounded-lg border border-slate-700 text-sm text-slate-200 hover:border-emerald-500 cursor-pointer flex items-center gap-1.5">
+                      <Settings className="w-3.5 h-3.5 text-emerald-400" /> Logo: {watermarkConfig.enabled ? 'On' : 'Off'} · Change
                     </button>
                   </div>
                 </div>
-
-                {/* Active items badges */}
-                <div className="flex flex-wrap gap-1.5 min-h-[28px]">
-                  {activeStylistItems.map((item) => {
-                    const badgeStyles =
-                      item.category === 'character'
-                        ? 'bg-sky-950/70 border-sky-500/50 text-sky-200'
-                        : item.category === 'prop'
-                        ? 'bg-emerald-950/70 border-emerald-500/50 text-emerald-200'
-                        : 'bg-purple-950/70 border-purple-500/50 text-purple-200';
-                    return (
-                      <div
-                        key={item.id}
-                        className={`px-2 py-1 rounded-lg border text-xs flex items-center gap-1.5 shadow-sm ${badgeStyles}`}
-                      >
-                        <span>{item.icon}</span>
-                        <span className="font-semibold text-[11px]">{item.title}</span>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveStylistItem(item.id)}
-                          className="hover:text-white p-0.5 ml-0.5 transition-colors cursor-pointer"
-                          title={`Remove ${item.title}`}
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </div>
-                    );
-                  })}
-
-                  {activeStylistItems.length === 0 && (
-                    <span className="text-[11px] text-slate-500 italic py-0.5">
-                      Standard bunny outfit active. Click presets below or open Studio to add clothing, props & companion characters!
-                    </span>
-                  )}
-                </div>
-
-                {/* Quick Toggle Presets */}
-                <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                  <span className="text-[10px] uppercase font-semibold text-slate-500 shrink-0">
-                    Quick Add:
-                  </span>
-                  {[
-                    PRESET_CLOTHING[0],
-                    PRESET_CLOTHING[1],
-                    PRESET_CLOTHING[2],
-                    PRESET_PROPS[0],
-                    PRESET_PROPS[1],
-                    PRESET_CHARACTERS[0],
-                    PRESET_CHARACTERS[1],
-                  ].map((preset) => {
-                    const isSelected = activeStylistItems.some((i) => i.id === preset.id);
-                    const tagClass =
-                      preset.category === 'character'
-                        ? isSelected
-                          ? 'bg-sky-600 text-white border-sky-400'
-                          : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-sky-500/50 hover:text-sky-200'
-                        : preset.category === 'prop'
-                        ? isSelected
-                          ? 'bg-emerald-600 text-white border-emerald-400'
-                          : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-emerald-500/50 hover:text-emerald-200'
-                        : isSelected
-                        ? 'bg-purple-600 text-white border-purple-400'
-                        : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-purple-500/50 hover:text-purple-200';
-                    return (
-                      <button
-                        key={preset.id}
-                        type="button"
-                        onClick={() => handleToggleStylistItem(preset)}
-                        className={`px-2 py-0.5 rounded-md border text-[10px] font-medium flex items-center gap-1 transition-all cursor-pointer ${tagClass}`}
-                      >
-                        <span>{preset.icon}</span>
-                        <span>{preset.title}</span>
-                        {isSelected && <span className="text-[9px]">✓</span>}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* NEW: Season & Weather Studio Card */}
-          <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-xl flex flex-col gap-3.5">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                <Sun className="w-3.5 h-3.5 text-amber-400" /> Season & Weather Studio
-              </span>
-              <button
-                type="button"
-                onClick={() => setAutoCompose(!autoCompose)}
-                className={`text-[11px] px-2 py-0.5 rounded-full border flex items-center gap-1 transition-colors cursor-pointer ${
-                  autoCompose
-                    ? 'bg-emerald-950/60 text-emerald-400 border-emerald-600/40'
-                    : 'bg-slate-800 text-slate-400 border-slate-700'
-                }`}
-                title="When ON, changing season or weather automatically adapts the video prompt"
-              >
-                <span>{autoCompose ? '✓ Auto-Sync Prompt' : 'Manual Prompt'}</span>
-              </button>
-            </div>
-
-            {/* Season Selector */}
-            <div>
-              <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5 flex items-center justify-between">
-                <span>Select Season</span>
-                <span className="text-[10px] text-slate-500 font-normal">Transforms vegetation & environment</span>
-              </label>
-              <div className="grid grid-cols-4 gap-1.5">
-                {SEASONS.map((s) => {
-                  const isSelected = selectedSeason === s.id;
-                  return (
-                    <button
-                      key={s.id}
-                      type="button"
-                      onClick={() => handleSeasonChange(s.id)}
-                      className={`p-2 rounded-xl border flex flex-col items-center gap-1 transition-all cursor-pointer ${
-                        isSelected
-                          ? `${s.colorClasses} ${s.activeBorder} shadow-sm font-bold`
-                          : 'bg-slate-950/70 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
-                      }`}
-                    >
-                      <span className="text-xl">{s.icon}</span>
-                      <span className="text-xs">{s.name}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Weather Selector */}
-            <div>
-              <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5 flex items-center justify-between">
-                <span>Select Weather & Atmosphere</span>
-                <span className="text-[10px] text-slate-500 font-normal">Controls sky, light & precipitation</span>
-              </label>
-              <div className="grid grid-cols-3 gap-1.5">
-                {WEATHER_OPTIONS.map((w) => {
-                  const isSelected = selectedWeather === w.id;
-                  return (
-                    <button
-                      key={w.id}
-                      type="button"
-                      onClick={() => handleWeatherChange(w.id)}
-                      className={`p-2 rounded-xl border flex items-center gap-2 transition-all cursor-pointer ${
-                        isSelected
-                          ? 'bg-amber-950/40 border-amber-500/80 text-amber-300 font-semibold shadow-sm'
-                          : 'bg-slate-950/70 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
-                      }`}
-                    >
-                      <span className="text-lg shrink-0">{w.icon}</span>
-                      <div className="text-left leading-tight truncate">
-                        <div className="text-xs truncate">{w.name}</div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Quick action button to re-apply atmosphere to prompt */}
-            {!autoCompose && (
-              <button
-                type="button"
-                onClick={handleForceApplyAtmosphere}
-                className="w-full py-1.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-              >
-                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                <span>Apply {currentSeasonObj.name} & {currentWeatherObj.name} to Prompt</span>
-              </button>
-            )}
-          </div>
-
-          {/* Jump Animation Presets */}
-          <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-xl flex flex-col gap-3">
-            <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5 text-lime-400" /> Jump Presets
-            </span>
-            <div className="grid grid-cols-2 gap-2">
-              {JUMP_PRESETS.map((p) => {
-                const isActive = activePreset === p.id;
-                return (
-                  <button
-                    key={p.id}
-                    onClick={() => handleSelectPreset(p)}
-                    className={`text-left p-3 rounded-xl border transition-all flex flex-col justify-between gap-1 cursor-pointer ${
-                      isActive
-                        ? 'bg-emerald-950/40 border-emerald-500/80 shadow-md shadow-emerald-500/10'
-                        : 'bg-slate-950/60 border-slate-800 hover:border-slate-700 hover:bg-slate-800/40'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between w-full">
-                      <span className="text-xl">{p.icon}</span>
-                      <span className="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">
-                        {p.recommendedAspect}
-                      </span>
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold text-slate-200">{p.label}</div>
-                      <div className="text-[11px] text-slate-400 line-clamp-1">{p.tagline}</div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Motion Prompt & Video Specs */}
-          <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-xl flex flex-col gap-4">
-            <div>
-              <div className="flex items-center justify-between mb-1.5 flex-wrap gap-2">
-                <label className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                  <Film className="w-3.5 h-3.5 text-emerald-400" /> Motion & Environment Prompt
-                </label>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowScriptModal(true)}
-                    className="text-[11px] text-amber-300 hover:text-amber-200 bg-amber-950/40 hover:bg-amber-900/60 border border-amber-500/40 px-2.5 py-0.5 rounded-md font-semibold flex items-center gap-1 transition-all cursor-pointer shadow-sm"
-                    title="Generate multi-scene storyboard from your story or script"
-                  >
-                    <ScrollText className="w-3 h-3 text-amber-400" />
-                    <span>Script to Story</span>
-                  </button>
-                  <span className="text-[11px] text-slate-500 font-mono">Gemini Omni Flash</span>
-                </div>
-              </div>
-              <textarea
-                value={prompt}
-                onChange={(e) => {
-                  setPrompt(e.target.value);
-                  setAutoCompose(false);
-                }}
-                rows={3}
-                placeholder="Describe how the rabbit jumps, runs, or bounces..."
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs sm:text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all resize-none"
-              />
-              <CinematographyToolbar
-                currentPrompt={prompt}
-                onUpdatePrompt={(newP) => {
-                  setPrompt(newP);
-                  setAutoCompose(false);
-                }}
-                onOpenDirectorModal={() => {
-                  setDirectorTarget('main');
-                  setShowDirectorModal(true);
-                }}
-                onOpenGlossary={() => setShowGlossaryModal(true)}
-                season={selectedSeason}
-                weather={selectedWeather}
-                isExtension={false}
-                previousPrompt={currentVideo?.prompt}
-              />
-            </div>
-
-            {/* Video Parameters: Aspect Ratio, Duration, Resolution */}
-            <div className="grid grid-cols-2 gap-3 pt-1 border-t border-slate-800/60">
-              {/* Aspect Ratio */}
-              <div>
-                <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5 flex items-center gap-1">
-                  <Crop className="w-3 h-3 text-slate-400" /> Aspect Ratio
-                </label>
-                <div className="grid grid-cols-2 gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setAspectRatio('9:16')}
-                    className={`py-2 px-2 rounded-lg text-xs font-semibold flex flex-col items-center gap-1 border transition-all cursor-pointer ${
-                      aspectRatio === '9:16'
-                        ? 'bg-emerald-950/60 border-emerald-500 text-emerald-300'
-                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    <span className="w-3 h-4 border border-current rounded-sm" />
-                    <span>9:16 Portrait</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setAspectRatio('16:9')}
-                    className={`py-2 px-2 rounded-lg text-xs font-semibold flex flex-col items-center gap-1 border transition-all cursor-pointer ${
-                      aspectRatio === '16:9'
-                        ? 'bg-emerald-950/60 border-emerald-500 text-emerald-300'
-                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    <span className="w-4 h-3 border border-current rounded-sm" />
-                    <span>16:9 Landscape</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Duration & Resolution */}
-              <div className="flex flex-col gap-2">
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-                      Duration
-                    </label>
-                    <span className="text-[10px] text-slate-500 font-mono">
-                      {duration === '20s' ? '2 Scenes Chained' : duration === '30s' ? '3 Scenes Chained' : duration === '15s' ? 'Single Shot Max' : 'Single Shot'}
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-5 gap-1">
-                    {([
-                      { id: '5s', label: '5s', tip: 'Quick Clip (5s)' },
-                      { id: '10s', label: '10s', tip: 'Standard Scene (10s)' },
-                      { id: '15s', label: '15s', tip: 'Extended Shot (15s Max Native)' },
-                      { id: '20s', label: '20s', tip: '2-Scene Storyboard Sequence (20s)' },
-                      { id: '30s', label: '30s', tip: '3-Scene Storyboard Sequence (30s)' },
-                    ] as const).map(({ id, label, tip }) => (
-                      <button
-                        key={id}
-                        type="button"
-                        onClick={() => setDuration(id)}
-                        title={tip}
-                        className={`py-1.5 px-0.5 text-xs font-semibold rounded-lg border transition-all cursor-pointer text-center ${
-                          duration === id
-                            ? 'bg-emerald-950/60 border-emerald-500 text-emerald-300 shadow-sm shadow-emerald-950/50'
-                            : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                  {(duration === '20s' || duration === '30s') && (
-                    <p className="text-[10px] text-cyan-300/90 mt-1.5 flex items-center gap-1 bg-cyan-950/30 border border-cyan-800/40 rounded px-2 py-1">
-                      <span>✨ <strong>Continuous Sequence:</strong> Automatically chains consecutive scenes via Gemini Interactions API</span>
-                    </p>
-                  )}
-                  {duration === '15s' && (
-                    <p className="text-[10px] text-emerald-300/90 mt-1.5 flex items-center gap-1 bg-emerald-950/30 border border-emerald-800/40 rounded px-2 py-1">
-                      <span>🎬 <strong>Single-Shot:</strong> Native 15-second generation powered by Gemini Omni Flash</span>
-                    </p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1 block">
-                    Resolution
-                  </label>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {(['720p', '1080p'] as const).map((r) => (
-                      <button
-                        key={r}
-                        type="button"
-                        onClick={() => setResolution(r)}
-                        className={`py-1.5 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${
-                          resolution === r
-                            ? 'bg-emerald-950/60 border-emerald-500 text-emerald-300'
-                            : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
-                        }`}
-                      >
-                        {r}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Audio Mode: With Sound vs Silent */}
-              <div className="col-span-2 pt-2 border-t border-slate-800/60">
-                <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5 flex items-center justify-between">
-                  <span className="flex items-center gap-1.5">
-                    {audioMode === 'with_sound' ? (
-                      <Volume2 className="w-3.5 h-3.5 text-emerald-400" />
-                    ) : (
-                      <VolumeX className="w-3.5 h-3.5 text-slate-400" />
-                    )}
-                    <span>Audio Mode</span>
-                  </span>
-                  <span className="text-[10px] text-slate-500 font-normal">
-                    {audioMode === 'with_sound' ? 'Sound that fits the scene' : 'Pure silent visual elegance'}
-                  </span>
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setAudioMode('with_sound')}
-                    className={`py-2 px-2.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
-                      audioMode === 'with_sound'
-                        ? 'bg-emerald-950/60 border-emerald-500 text-emerald-300 shadow-sm'
-                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    <span>🔊 With Sound</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setAudioMode('silent')}
-                    className={`py-2 px-2.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
-                      audioMode === 'silent'
-                        ? 'bg-purple-950/60 border-purple-500 text-purple-300 shadow-sm'
-                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    <span>🔇 Silent / No Sound</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Cost Per Video Calculator & Transparency Card */}
-            <div className="bg-slate-950/90 border border-slate-800 rounded-xl p-3.5 flex flex-col gap-2.5">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <Coins className="w-4 h-4 text-amber-400" />
-                  <span className="text-xs font-bold text-slate-200">Cost Per Video:</span>
-                  <span
-                    className={`text-xs font-extrabold px-2 py-0.5 rounded-full border ${
-                      estimatedCost.isFree
-                        ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
-                        : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
-                    }`}
-                  >
-                    {estimatedCost.display}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowPricingModal(true)}
-                  className="text-[11px] text-slate-400 hover:text-emerald-400 flex items-center gap-1 transition-colors cursor-pointer"
-                >
-                  <HelpCircle className="w-3.5 h-3.5" />
-                  <span>Cost Details</span>
-                </button>
-              </div>
-
-              <div className="text-[11px] text-slate-400 leading-relaxed flex items-center justify-between">
-                <span>
-                  Gemini Omni Flash: {duration} @ {resolution} (${estimatedCost.ratePerSec.toFixed(2)}/sec)
-                </span>
-                <span className="text-[11px] font-mono text-amber-400 font-semibold">
-                  {estimatedCost.display}
-                </span>
-              </div>
-            </div>
+              )}
 
             {/* 429 Spending Cap & Model Rate Limit Alert Banner */}
             {isSpendingCapHit && (
@@ -4178,31 +3737,29 @@ export default function App() {
                 </div>
               </div>
             )}
+            </div>
+          </div>
 
-            {/* Big Action Button */}
+          {/* The one Generate button, always at the bottom of the panel */}
+          <div className="sticky bottom-0 mt-auto p-4 sm:p-5 border-t border-slate-800 bg-slate-900 rounded-b-2xl flex flex-col gap-2">
             <button
+              type="button"
               onClick={handleTriggerGenerate}
               disabled={isGenerating}
-              className="w-full py-3.5 font-bold text-sm rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.99] cursor-pointer bg-gradient-to-r from-emerald-500 via-teal-500 to-lime-400 hover:from-emerald-400 hover:to-lime-300 text-slate-950 shadow-emerald-500/25"
+              className="w-full min-h-[52px] rounded-xl bg-emerald-400 hover:bg-emerald-300 text-slate-950 font-bold text-base flex items-center justify-center gap-2 transition-colors disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
             >
               {isGenerating ? (
                 <>
-                  <RefreshCw className="w-4 h-4 animate-spin text-slate-950" />
-                  <span>
-                    Generating {currentSeasonObj.name} Video ({progressPercent}%)...
-                  </span>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>Making the scene… {progressPercent}%</span>
                 </>
               ) : (
-                <>
-                  <Sparkles className="w-4 h-4 text-slate-950 fill-current" />
-                  <span>
-                    Generate Video with Gemini Omni ({estimatedCost.display})
-                  </span>
-                </>
+                <span>Generate scene · {parseInt(duration, 10)} s · ${estimatedCost.amount.toFixed(2)}</span>
               )}
             </button>
+            <p className="text-xs text-slate-400 text-center">Takes about 1 minute.</p>
           </div>
-        </div>
+        </section>
 
         {/* Right Column: Video Player, Comparison & Live Preview (7 cols) */}
         <div className="lg:col-span-7 flex flex-col gap-5">
@@ -4211,7 +3768,7 @@ export default function App() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                  <Film className="w-3.5 h-3.5 text-emerald-400" /> Animation Theater
+                  <Film className="w-3.5 h-3.5 text-emerald-400" /> Preview
                 </span>
                 {currentVideo && (
                   <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
@@ -4284,9 +3841,8 @@ export default function App() {
                   </div>
 
                   <div className="space-y-2 w-full">
-                    <h3 className="font-bold text-base text-slate-100">
-                      Generating {currentSeasonObj.name} Video with Gemini Omni Flash
-                    </h3>
+                    <h3 className="font-bold text-lg text-slate-100">Making the scene</h3>
+                    <p className="text-sm text-slate-300">Usually about 1 minute. Keep this page open until it is done.</p>
                     <p className="text-xs text-slate-400">{progressStep}</p>
 
                     {/* Progress bar */}
@@ -4299,21 +3855,6 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Interactive while waiting feature */}
-                  <div className="p-3 bg-slate-900/90 border border-slate-700/60 rounded-xl text-left w-full">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-[11px] font-semibold text-emerald-400 flex items-center gap-1">
-                        <Zap className="w-3 h-3 text-lime-400" /> Tap while you wait:
-                      </span>
-                      <span className="text-[10px] text-slate-400 font-mono">Bounces: {jumpCount}</span>
-                    </div>
-                    <button
-                      onClick={handlePhysicsJump}
-                      className="w-full py-2 bg-emerald-950/60 hover:bg-emerald-900/80 text-emerald-300 border border-emerald-700/50 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer"
-                    >
-                      <span>Boing! Make the Rabbit Jump in {currentSeasonObj.name}</span> 🐾
-                    </button>
-                  </div>
                 </div>
               ) : currentVideo ? (
                 /* Display Video or Comparison View */
@@ -4395,7 +3936,7 @@ export default function App() {
               ) : (
                 /* Initial Empty/Ready State: Showcase Rabbit with Jump Physics Demo */
                 <div className="flex flex-col items-center justify-center text-center p-8 max-w-md w-full gap-4">
-                  <div className="relative cursor-pointer group" onClick={handlePhysicsJump}>
+                  <div className="relative group">
                     <motion.div
                       animate={
                         isPhysicsJumping
@@ -4434,30 +3975,12 @@ export default function App() {
                   </div>
 
                   <div className="space-y-1">
-                    <h3 className="font-bold text-lg text-slate-100">
-                      Animate in {currentSeasonObj.name} & {currentWeatherObj.name}
-                    </h3>
-                    <p className="text-xs text-slate-400 max-w-xs mx-auto">
-                      Choose your season and weather above, then click below to render your plush rabbit jumping video using Gemini Omni Flash!
+                    <h3 className="font-bold text-lg text-slate-100">No scene yet</h3>
+                    <p className="text-sm text-slate-400 max-w-sm mx-auto">
+                      Pick a start picture, describe what happens, then press Generate scene. The new scene plays here.
                     </p>
                   </div>
 
-                  <div className="flex items-center gap-2 mt-2">
-                    <button
-                      onClick={handlePhysicsJump}
-                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
-                    >
-                      <Zap className="w-3.5 h-3.5 text-lime-400" />
-                      <span>Tap to Bounce ({jumpCount})</span>
-                    </button>
-                    <button
-                      onClick={() => handleGenerateVideo()}
-                      className="px-4 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-lg flex items-center gap-1.5 shadow-md shadow-emerald-500/20 transition-all cursor-pointer"
-                    >
-                      <Sparkles className="w-3.5 h-3.5 fill-current" />
-                      <span>Make Rabbit Jump Now</span>
-                    </button>
-                  </div>
                 </div>
               )}
             </div>
@@ -5272,7 +4795,7 @@ export default function App() {
 
           {/* Stories: every story with its scenes; click a scene to open that story */}
           {videoHistory.length > 0 && (
-            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-xl flex flex-col gap-4">
+            <div id="stories" className="scroll-mt-24 bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-xl flex flex-col gap-4">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
                   <Film className="w-3.5 h-3.5 text-lime-400" /> Stories ({stories.length})
