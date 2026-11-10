@@ -184,6 +184,14 @@ export function isTransformationRequest(body: any): boolean {
 
 export const isNoSymbolRequest = (body: any): boolean => body?.customEmblemType === 'none';
 
+/** The story's approved main character (character card): keep exactly that look in every frame. */
+export function castDirective(body: any): string {
+  const d = typeof body?.castDescription === 'string' ? body.castDescription.trim() : '';
+  if (!d) return '';
+  const name = typeof body?.castName === 'string' && body.castName.trim() ? ` (${body.castName.trim()})` : '';
+  return `\n\n[MAIN CHARACTER - APPROVED LOOK]:\nThe main character${name} must look exactly like the attached MAIN CHARACTER image in every frame: ${d}\nKeep the same face, colours, proportions, hair or fur, clothing and accessories as in that image and as in the scene before. Do not change the character's look.`;
+}
+
 /** The "Khalle in this scene" switch is off: no Khalle pictures, symbol or identity rule are sent. */
 export const excludesKhalle = (body: any): boolean => body?.includeKhalle === false;
 
@@ -604,6 +612,15 @@ export async function resolveReferenceImages(body: any): Promise<ResolvedImage[]
     // client states the role, e.g. "the video must start on this frame".
     if (ref.category === 'continuity_frame') {
       return { role: ref.role || ref.label || 'Continuity frame', desc: ref.description || '', isFriend: false, isPicture: false };
+    }
+    // The story's approved character card (set by the user with "Save this character").
+    if (ref.category === 'main_character') {
+      return {
+        role: 'MAIN CHARACTER of this story (approved look): draw exactly this character',
+        desc: ref.description || '',
+        isFriend: false,
+        isPicture: false,
+      };
     }
     const label = (ref.label || '').toLowerCase();
     const cleanLabel = label.replace(/\s*\([^)]*\)/g, '').trim().toLowerCase();

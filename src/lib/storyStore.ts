@@ -176,7 +176,14 @@ const blobToDataUrl = (blob: Blob) =>
   });
 
 /** A scene as the server keeps it: no bytes, only the names of its files. */
-type ServerItem = Record<string, unknown> & { id: string; clipFile?: string; remoteUrl?: string; sourceImageFile?: string };
+type ServerItem = Record<string, unknown> & {
+  id: string;
+  clipFile?: string;
+  remoteUrl?: string;
+  sourceImageFile?: string;
+  /** The story's approved main-character picture (castImage), stored once as an img- file. */
+  castImageFile?: string;
+};
 
 const imageNames = new Map<string, string>();
 
@@ -184,7 +191,7 @@ async function toServerItems<T extends WithVideo>(history: T[]) {
   const files = new Map<string, () => Promise<Blob | null>>();
   const items: ServerItem[] = [];
   for (const item of history) {
-    const { videoUrl, sourceImage, ...rest } = item as T & { sourceImage?: string };
+    const { videoUrl, sourceImage, castImage, ...rest } = item as T & { sourceImage?: string; castImage?: string };
     const entry: ServerItem = { ...(rest as unknown as ServerItem) };
     if (videoUrl.startsWith('data:') || videoUrl.startsWith('blob:')) {
       entry.clipFile = clipFileName(item.id);
@@ -203,6 +210,17 @@ async function toServerItems<T extends WithVideo>(history: T[]) {
     } else if (sourceImage !== undefined) {
       entry.sourceImage = sourceImage;
     }
+    if (typeof castImage === 'string' && castImage.startsWith('data:')) {
+      let name = imageNames.get(castImage);
+      if (!name) {
+        name = await imageFileName(castImage);
+        imageNames.set(castImage, name);
+      }
+      entry.castImageFile = name;
+      if (!files.has(name)) files.set(name, () => urlToBlob(castImage));
+    } else if (castImage !== undefined) {
+      entry.castImage = castImage;
+    }
     items.push(entry);
   }
   return { items, files, json: JSON.stringify(items) };
@@ -213,7 +231,7 @@ async function hydrate<T extends WithVideo>(items: ServerItem[]): Promise<T[]> {
   const out: T[] = [];
   const images = new Map<string, string>();
   for (const item of items) {
-    const { clipFile, remoteUrl, sourceImageFile, ...rest } = item;
+    const { clipFile, remoteUrl, sourceImageFile, castImageFile, ...rest } = item;
     let videoUrl = '';
     if (clipFile) {
       const blob = (await localClip(item.id)) || (await getServerFile(clipFile).catch(() => null));
@@ -231,6 +249,15 @@ async function hydrate<T extends WithVideo>(items: ServerItem[]): Promise<T[]> {
         if (dataUrl) imageNames.set(dataUrl, sourceImageFile);
       }
       scene.sourceImage = dataUrl;
+    }
+    if (castImageFile) {
+      let dataUrl = images.get(castImageFile);
+      if (dataUrl === undefined) {
+        dataUrl = await getServerFile(castImageFile).then(blobToDataUrl).catch(() => '');
+        images.set(castImageFile, dataUrl);
+        if (dataUrl) imageNames.set(dataUrl, castImageFile);
+      }
+      if (dataUrl) scene.castImage = dataUrl;
     }
     out.push(scene as unknown as T);
   }

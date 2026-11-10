@@ -93,6 +93,7 @@ import { analyzeCut, type CutAnalysis } from './api/cutAnalysis';
 import { exportStory } from './lib/storyExport';
 import SceneEditBar from './components/SceneEditBar';
 import AppLogo from './components/AppLogo';
+import CastModal from './components/CastModal';
 import TransitionModal from './components/TransitionModal';
 import { generateTransition } from './api/transition';
 import {
@@ -602,6 +603,12 @@ export interface GeneratedVideo {
   trimEnd?: number;
   /** The story's name, kept on every scene of the story (set with Rename on the Stories page). */
   storyTitle?: string;
+  /** Whether Khalle's pictures and rule were sent for this scene; the next scene of the story uses the same. */
+  includeKhalle?: boolean;
+  /** The story's approved main character ("Save this character"), kept on every scene of the story. */
+  castImage?: string;
+  castDescription?: string;
+  castName?: string;
   /**
    * Extension only: where its own new part begins in the clip, found from the frames (src/lib/seam.ts).
    * The scene it continues stops here when the two play in a row (storyPlayEnd).
@@ -827,6 +834,8 @@ export default function App() {
   const [makingSceneNo, setMakingSceneNo] = useState(1);
   const [genStartedAt, setGenStartedAt] = useState(0);
   const [genNow, setGenNow] = useState(0);
+  /** "Save this character": the frame it was opened on and the scene it came from. */
+  const [castModal, setCastModal] = useState<{ frame: string; scene: GeneratedVideo } | null>(null);
   /** Story being renamed on the Stories page, and the text typed so far. */
   const [renaming, setRenaming] = useState<{ storyId: string; text: string } | null>(null);
   /** The ⋯ "Move or copy" menu on a scene card: which scene, to which story ('new' = a new story), at which slot. */
@@ -1135,9 +1144,11 @@ export default function App() {
     }
     // The scene takes the name of the story it lands in (none for a new story).
     const targetTitle = target.find((v) => v.storyTitle)?.storyTitle;
+    const targetCast = target.find((v) => v.castImage);
+    const card = { castImage: targetCast?.castImage, castDescription: targetCast?.castDescription, castName: targetCast?.castName };
     const placed: GeneratedVideo = copy
-      ? { ...scene, id: `vid-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, storyId: targetStoryId, storyTitle: targetTitle }
-      : { ...scene, storyId: targetStoryId, storyTitle: targetTitle };
+      ? { ...scene, id: `vid-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, storyId: targetStoryId, storyTitle: targetTitle, ...card }
+      : { ...scene, storyId: targetStoryId, storyTitle: targetTitle, ...card };
     // A move within one story is handled above, so `target` holds the scene itself only for a copy.
     target.splice(Math.max(0, Math.min(target.length, toIndex)), 0, placed);
     const groups = new Map<string, GeneratedVideo[]>();
@@ -1478,6 +1489,52 @@ export default function App() {
   }, [videoHistory]);
 
   // Close the open story; the next Generate or Upload Video starts a new one.
+  /** The story's character card as request fields: the picture first in the references, the look as text. */
+  const castRequest = (scene?: GeneratedVideo) => {
+    if (!scene?.castImage || !scene.castDescription) return { refs: [] as any[], fields: {} };
+    const m = scene.castImage.match(/^data:([^;]+);/);
+    return {
+      refs: [
+        {
+          label: 'main_character',
+          filename: 'main_character.jpg',
+          category: 'main_character',
+          imageBase64: scene.castImage,
+          mimeType: m ? m[1] : 'image/jpeg',
+          description: scene.castDescription,
+        },
+      ],
+      fields: { castDescription: scene.castDescription, castName: scene.castName },
+    };
+  };
+  /** Open "Save this character" on the frame the player is showing now. */
+  const openCastModal = async (scene: GeneratedVideo) => {
+    try {
+      const at = videoRef.current && currentVideo?.id === scene.id ? videoRef.current.currentTime : scene.trimStart ?? 0;
+      videoRef.current?.pause();
+      const frame = await grabFrame(scene.videoUrl, at);
+      setCastModal({ frame, scene });
+    } catch (e: any) {
+      setErrorMessage(e?.message || 'The frame could not be read.');
+    }
+  };
+  /** Card fields copied onto a new scene of the same story. */
+  const castFieldsOf = (scene?: GeneratedVideo) =>
+    scene?.castImage ? { castImage: scene.castImage, castDescription: scene.castDescription, castName: scene.castName } : {};
+  /** Set or clear the character card on every scene of a story. */
+  const setStoryCast = (storyId: string, cast: { image: string; description: string; name?: string } | null) => {
+    const next = videoHistoryRef.current.map((v) =>
+      v.storyId !== storyId
+        ? v
+        : cast
+        ? { ...v, castImage: cast.image, castDescription: cast.description, castName: cast.name || undefined }
+        : { ...v, castImage: undefined, castDescription: undefined, castName: undefined }
+    );
+    videoHistoryRef.current = next;
+    setVideoHistory(next);
+    setCurrentVideo((cur) => (cur ? next.find((v) => v.id === cur.id) || cur : cur));
+  };
+
   /** A story's name: the one set with Rename, else the start of its first scene's text. */
   const storyName = (scenes: GeneratedVideo[]) => {
     const t = scenes.find((v) => v.storyTitle)?.storyTitle;
@@ -1517,6 +1574,8 @@ export default function App() {
       : undefined;
   const nextSceneNumber = openStoryLastScene ? currentStoryScenes.length + 1 : 1;
   const continuesLastScene = !!openStoryLastScene && nextStartsFrom === 'end';
+  /** The open story's character card, if it has one. */
+  const openStoryCast = currentStoryScenes.find((v) => v.castImage);
 
   const totalStorySeconds = useMemo(
     () => storyPlaySeconds(currentStoryScenes),
@@ -1806,6 +1865,15 @@ export default function App() {
         return 0;
       });
 
+      // Joining an open story: its character card goes first and its look is sent as text.
+      {
+        const join = appendToStoryRef.current;
+        const joinScene = join ? videoHistoryRef.current.find((v) => v.storyId === join && v.castImage) : undefined;
+        const cast = castRequest(joinScene);
+        if (cast.refs.length) combinedReferenceImages.unshift(...cast.refs);
+        Object.assign(payload, cast.fields);
+      }
+
       if (combinedReferenceImages.length > 0) {
         payload.referenceImages = combinedReferenceImages;
       }
@@ -1877,6 +1945,7 @@ export default function App() {
         storyId: vidId,
         sceneNumber: 1,
         interactionId: data.interactionId,
+        includeKhalle,
       };
 
       setSessionCost((prev) => prev + estimatedCost.amount);
@@ -1889,7 +1958,9 @@ export default function App() {
             .sort((a, b) => (a.sceneNumber || 1) - (b.sceneNumber || 1))
             .pop()
         : undefined;
-      const joined = joinLast ? replaceInStory(joinLast.id, [joinLast, { ...newVideo, storyId: joinStory! }]) : undefined;
+      const joined = joinLast
+        ? replaceInStory(joinLast.id, [joinLast, { ...newVideo, storyId: joinStory!, storyTitle: joinLast.storyTitle, ...castFieldsOf(joinLast) }])
+        : undefined;
       if (joined) {
         setCurrentVideo(joined.find((v) => v.id === newVideo.id) || newVideo);
       } else {
@@ -2174,6 +2245,7 @@ export default function App() {
           ...(continueInteraction
             ? { previousInteractionId: parentVideo.interactionId }
             : { imageBase64: startFrame, imageMimeType: 'image/jpeg' }),
+          ...castRequest(parentVideo).fields,
           prompt: generationPrompt,
           aspectRatio: parentVideo.aspectRatio,
           duration: `${sceneSeconds}s`,
@@ -2195,6 +2267,7 @@ export default function App() {
           enableMorph: isMorphingEnabled && activeEmblem?.type === 'morph',
           referenceImages: [
             ...continuityRefs,
+            ...castRequest(parentVideo).refs,
             ...referenceAssets.filter((a) => a.enabled).map((ref) => ({
               label: ref.label,
               imagePath: ref.imagePath,
@@ -2246,6 +2319,9 @@ export default function App() {
         sceneNumber: nextSceneNumber,
         interactionId: data.interactionId,
         previousInteractionId: continueInteraction ? parentVideo.interactionId : undefined,
+        includeKhalle,
+        storyTitle: parentVideo.storyTitle,
+        ...castFieldsOf(parentVideo),
       };
 
       setSessionCost((prev) => prev + (resolution === '1080p' ? 0.60 : 0.35));
@@ -2439,12 +2515,14 @@ export default function App() {
           characterDirectives: characterItems.map((ch) => ({ title: ch.title, directive: ch.promptDirective || ch.directive || '' })),
           customEmblemType: activeEmblem?.type,
           includeKhalle: correctionIncludeKhalle,
+          ...castRequest(sceneToCorrect).fields,
           customEmblemDirective: activeEmblem?.directive,
           customEmblemName: activeEmblem?.name,
           customEmblemImage: activeEmblem?.imageBase64 || activeEmblem?.imagePath,
           disableMorph: !isMorphingEnabled || activeEmblem?.type !== 'morph',
           enableMorph: isMorphingEnabled && activeEmblem?.type === 'morph',
           referenceImages: [
+            ...castRequest(sceneToCorrect).refs,
             ...referenceAssets.filter((a) => a.enabled).map((ref) => ({
               label: ref.label,
               imagePath: ref.imagePath,
@@ -2502,6 +2580,7 @@ export default function App() {
             characterDirectives: characterItems.map((ch) => ({ title: ch.title, directive: ch.promptDirective || ch.directive || '' })),
             customEmblemType: activeEmblem?.type,
             includeKhalle: correctionIncludeKhalle,
+            ...castRequest(sceneToCorrect).fields,
             customEmblemDirective: activeEmblem?.directive,
             customEmblemName: activeEmblem?.name,
             customEmblemImage: activeEmblem?.imageBase64 || activeEmblem?.imagePath,
@@ -2513,6 +2592,7 @@ export default function App() {
             disableMorph: !isMorphingEnabled || activeEmblem?.type !== 'morph',
             enableMorph: isMorphingEnabled && activeEmblem?.type === 'morph',
             referenceImages: [
+              ...castRequest(sceneToCorrect).refs,
               ...referenceAssets.filter((a) => a.enabled).map((ref) => ({
                 label: ref.label,
                 imagePath: ref.imagePath,
@@ -2565,6 +2645,7 @@ export default function App() {
         engine: 'omni',
         interactionId: data.interactionId,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        includeKhalle: correctionIncludeKhalle,
       };
 
       setSessionCost((prev) => prev + (resolution === '1080p' ? 0.60 : 0.35));
@@ -2778,6 +2859,16 @@ export default function App() {
 
   useEffect(() => setCutAnalysis(null), [currentVideo?.id]);
 
+  // A: when another story is opened, the Khalle switch follows what that story's last scene used,
+  // so the next scene keeps the same characters as the one before.
+  const openStoryKey = openStoryLastScene?.storyId;
+  useEffect(() => {
+    if (openStoryLastScene && typeof openStoryLastScene.includeKhalle === 'boolean') {
+      setIncludeKhalle(openStoryLastScene.includeKhalle);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openStoryKey]);
+
   // The "38 s so far" clock while a scene is being made.
   useEffect(() => {
     if (!isGenerating && !isExtending) return;
@@ -2819,6 +2910,9 @@ export default function App() {
         storyId: base.storyId || base.id,
         sceneNumber: from ? (from.sceneNumber || 1) + 1 : to.sceneNumber || 1,
         interactionId: result.interactionId,
+        includeKhalle: base.includeKhalle,
+        storyTitle: base.storyTitle,
+        ...castFieldsOf(base),
       };
       setSessionCost((prev) => prev + (resolution === '1080p' ? 0.6 : 0.35));
       // A transition goes right after `from`; a new opening scene goes right before `to`.
@@ -3421,6 +3515,35 @@ export default function App() {
                     : `Starts on the picture below. The cut from Scene ${nextSceneNumber - 1} is a hard cut; you can smooth it afterwards.`}
                 </p>
               </div>
+            )}
+
+            {/* The story's approved main character */}
+            {openStoryLastScene && openStoryCast && (
+              <div className="flex gap-3 items-start bg-slate-950 border border-emerald-800/60 rounded-xl p-3">
+                <img src={openStoryCast.castImage} alt="Main character" className="w-14 h-16 rounded-lg object-cover shrink-0" />
+                <div className="flex-1 min-w-0 flex flex-col gap-1">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-300">Main character · approved look</span>
+                  <span className="text-sm font-medium text-white truncate">{openStoryCast.castName || 'Main character'}</span>
+                  <p className="text-xs text-slate-400 line-clamp-2" title={openStoryCast.castDescription}>{openStoryCast.castDescription}</p>
+                  <div className="flex gap-3 mt-0.5">
+                    <button type="button" onClick={() => currentVideo && openCastModal(currentVideo)} className="text-sm text-emerald-300 hover:text-emerald-200 cursor-pointer">Update</button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (confirm('Stop sending this character card with the scenes of this story?')) setStoryCast(openStoryLastScene.storyId, null);
+                      }}
+                      className="text-sm text-slate-400 hover:text-rose-300 cursor-pointer"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+            {openStoryLastScene && !openStoryCast && (
+              <p className="text-xs text-slate-400 bg-slate-950 border border-slate-800 rounded-lg p-2.5">
+                Tip: pause the video on a good frame and press <strong className="text-slate-200">Save this character</strong> under it. Every later scene of this story is then told to keep that look.
+              </p>
             )}
 
             {/* Step 1: who and where (not needed when the scene continues the last one) */}
@@ -4489,6 +4612,15 @@ export default function App() {
                   <Wrench className="w-3.5 h-3.5 text-amber-400" />
                   <span>Change this scene</span>
                 </button>
+                <button
+                  type="button"
+                  onClick={() => openCastModal(currentVideo)}
+                  className="px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-200 border border-emerald-500/40 font-semibold rounded-lg flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
+                  title="Pause on a good frame, then save how the main character looks, so later scenes keep that look"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>{openStoryCast ? 'Update the character' : 'Save this character'}</span>
+                </button>
 
                 {/* Generation Diagnostic & Reference Log Buttons */}
                 <div className="flex items-center gap-1">
@@ -5149,6 +5281,23 @@ export default function App() {
 
         </div>
       </main>
+
+      {castModal && (
+        <CastModal
+          frame={castModal.frame}
+          sceneNumber={castModal.scene.sceneNumber || 1}
+          existing={
+            castModal.scene.castDescription
+              ? { name: castModal.scene.castName, description: castModal.scene.castDescription }
+              : undefined
+          }
+          onClose={() => setCastModal(null)}
+          onSave={(card) => {
+            setStoryCast(castModal.scene.storyId, card);
+            setCastModal(null);
+          }}
+        />
+      )}
 
       {/* Change a scene (mockup screen 5) */}
         {showCorrectionModal && sceneToCorrect && (() => {
