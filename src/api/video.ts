@@ -58,11 +58,22 @@ export function atmosphereDirective(_prompt: string, season?: string, weather?: 
 }
 
 // Sound follows the sound setting only. A word like "silently" in the scene text no longer mutes the video.
-export function audioDirective(audioMode: string, what: 'video' | 'continuation'): string {
+// 'with_sound' = everything; 'no_voices' = background sound and effects, never a voice; 'silent' = no audio.
+// "Talks without words" (silentTalk) never has a voice either: with 'with_sound' it gets 'no_voices'.
+export function audioDirective(audioMode: string, what: 'video' | 'continuation', silentTalk = false): string {
   if (audioMode === 'silent') {
     return `\n\n[AUDIO DIRECTIVE - SILENT]:\nSilent cinematic video with pure visual elegance. Do not generate audio or sound effects.`;
   }
+  if (audioMode === 'no_voices' || silentTalk) {
+    return `\n\n[AUDIO DIRECTIVE - BACKGROUND ONLY, NO VOICES]:\nGenerate only the ambient sound of the setting, the season and the weather, and soft sound effects for the actions. No voices of any kind: no speech, no words, no singing, no humming, no babble, no narration.`;
+  }
   return `\n\n[AUDIO DIRECTIVE - SOUND]:\nGenerate synchronized audio alongside the ${what} that fits what happens in the scene: the ambient sound of the setting, the season and the weather, and sound effects for the characters' actions.`;
+}
+
+// "Talks without words": the mouth and body move as in speech, so a voice-over can be added later.
+export function silentTalkDirective(silentTalk: boolean): string {
+  if (!silentTalk) return '';
+  return `\n\n[CHARACTER TALKS WITHOUT WORDS - FOR A VOICE-OVER]:\nThe main character talks during the whole shot: the mouth opens and closes continuously in a natural speaking rhythm, with lively facial expressions, eye and eyebrow movement, small head nods and expressive gestures with the hands or paws, as if telling something. There are no audible words: no speech sound, no singing. A voice will be added later.`;
 }
 
 // Image-to-Video Animation endpoint using Gemini Omni Flash via Interactions API
@@ -108,6 +119,7 @@ export async function executeAnimateCore(body: any) {
       duration: chosenDuration,
       resolution: chosenResolution,
       audioMode,
+      silentTalk: body.silentTalk === true,
       season,
       weather,
       customEmblemType: body.customEmblemType,
@@ -184,7 +196,8 @@ The following ${resolvedImages.length} reference images are attached in order in
   fullDirectives += formatProductionDirectives(body, resolvedImages);
 
   fullDirectives += atmosphereDirective(prompt, season, weather);
-  fullDirectives += audioDirective(audioMode, 'video');
+  fullDirectives += silentTalkDirective(body.silentTalk === true);
+  fullDirectives += audioDirective(audioMode, 'video', body.silentTalk === true);
 
   const sanitizedPrompt = sanitizePromptToImageReference(withoutComposedAtmosphere(prompt), resolvedImages);
   const lockedPrompt = `${resolvedImages.length ? `${imageManifest}\n\n` : ''}${fullDirectives}\n\n[ANIMATION SCENE ACTION DIRECTIVE]:\n${sanitizedPrompt}`;
@@ -453,6 +466,7 @@ export async function executeExtendCore(body: any) {
       duration: chosenDuration,
       resolution: chosenResolution,
       audioMode,
+      silentTalk: body.silentTalk === true,
       season,
       weather,
       customEmblemType: body.customEmblemType,
@@ -514,7 +528,8 @@ The following ${resolvedImages.length} reference images are attached in order in
   fullDirectives += formatProductionDirectives(body, resolvedImages);
 
   fullDirectives += atmosphereDirective(continuationPrompt, season, weather);
-  fullDirectives += audioDirective(audioMode, 'continuation');
+  fullDirectives += silentTalkDirective(body.silentTalk === true);
+  fullDirectives += audioDirective(audioMode, 'continuation', body.silentTalk === true);
 
   const sanitizedContinuationPrompt = sanitizePromptToImageReference(withoutComposedAtmosphere(continuationPrompt), resolvedImages);
   const lockedContinuationPrompt = `${resolvedImages.length ? `${imageManifest}\n\n` : ''}${fullDirectives}\n\n[SCENE CONTINUATION DIRECTIVE]:\n${sanitizedContinuationPrompt}`;

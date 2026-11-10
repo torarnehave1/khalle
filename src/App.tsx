@@ -605,6 +605,9 @@ export interface GeneratedVideo {
   storyTitle?: string;
   /** Whether Khalle's pictures and rule were sent for this scene; the next scene of the story uses the same. */
   includeKhalle?: boolean;
+  /** Sound setting used for this scene, and whether the character talked without words. */
+  audioMode?: 'with_sound' | 'no_voices' | 'silent';
+  silentTalk?: boolean;
   /** The story's approved main character ("Save this character"), kept on every scene of the story. */
   castImage?: string;
   castDescription?: string;
@@ -816,7 +819,11 @@ export default function App() {
   // Production Cast, Props, Equipment & Wardrobe Multi-Select Studio
   const [referenceAssets, setReferenceAssets] = useState<ReferenceAngle[]>(NO_SYMBOL_REFERENCE_ASSETS);
   const [activeStylistItems, setActiveStylistItems] = useState<StylistItem[]>([]);
-  const [audioMode, setAudioMode] = useState<'with_sound' | 'silent'>('with_sound');
+  const [audioMode, setAudioMode] = useState<'with_sound' | 'no_voices' | 'silent'>('with_sound');
+  /** "Talks without words": the character moves the mouth as if speaking, no voice (for a voice-over later). */
+  const [silentTalk, setSilentTalk] = useState(false);
+  /** The same, for the version made in the Change-a-scene window. */
+  const [correctionSilentTalk, setCorrectionSilentTalk] = useState(false);
   /** Off: Khalle's pictures, belly symbol and identity rule are left out of the request (for scenes about other characters). */
   const [includeKhalle, setIncludeKhalle] = useState(true);
   /** The "More options" panel in step 2 (camera, ideas, clothes, format, sound, Khalle's pictures). */
@@ -1770,6 +1777,7 @@ export default function App() {
         season: selectedSeason,
         weather: selectedWeather,
         audioMode,
+        silentTalk: silentTalk,
         clothingDirective: combinedClothingDirective || undefined,
         shootGuideDirective: combinedPropDirective || undefined,
         clothingDirectives: clothingItems.map((c) => ({ title: c.title, directive: c.promptDirective || c.directive || '' })),
@@ -1946,6 +1954,8 @@ export default function App() {
         sceneNumber: 1,
         interactionId: data.interactionId,
         includeKhalle,
+        audioMode,
+        silentTalk,
       };
 
       setSessionCost((prev) => prev + estimatedCost.amount);
@@ -1987,6 +1997,7 @@ export default function App() {
               season: selectedSeason,
               weather: selectedWeather,
               audioMode,
+              silentTalk: silentTalk,
               parentSceneNumber: 1,
             }),
           });
@@ -2027,6 +2038,7 @@ export default function App() {
                   season: selectedSeason,
                   weather: selectedWeather,
                   audioMode,
+                  silentTalk: silentTalk,
                   parentSceneNumber: 2,
                 }),
               });
@@ -2253,6 +2265,7 @@ export default function App() {
           season: opts?.season || parentVideo.season || selectedSeason,
           weather: opts?.weather || parentVideo.weather || selectedWeather,
           audioMode,
+          silentTalk: silentTalk,
           clothingDirective: combinedClothingDirective || undefined,
           shootGuideDirective: combinedPropDirective || undefined,
           clothingDirectives: clothingItems.map((c) => ({ title: c.title, directive: c.promptDirective || c.directive || '' })),
@@ -2320,6 +2333,8 @@ export default function App() {
         interactionId: data.interactionId,
         previousInteractionId: continueInteraction ? parentVideo.interactionId : undefined,
         includeKhalle,
+        audioMode,
+        silentTalk,
         storyTitle: parentVideo.storyTitle,
         ...castFieldsOf(parentVideo),
       };
@@ -2417,6 +2432,7 @@ export default function App() {
     setCorrectionFeedback('');
     setCorrectionProblems([]);
     setCorrectionIncludeKhalle(includeKhalle);
+    setCorrectionSilentTalk(typeof scene.silentTalk === 'boolean' ? scene.silentTalk : silentTalk);
     setCorrectionSeason(scene.season || selectedSeason);
     setCorrectionWeather(scene.weather || selectedWeather);
     setCorrectionMode('replace');
@@ -2508,6 +2524,7 @@ export default function App() {
           season: correctionSeason,
           weather: correctionWeather,
           audioMode,
+          silentTalk: correctionSilentTalk,
           clothingDirective: combinedClothingDirective || undefined,
           shootGuideDirective: combinedPropDirective || undefined,
           clothingDirectives: clothingItems.map((c) => ({ title: c.title, directive: c.promptDirective || c.directive || '' })),
@@ -2573,6 +2590,7 @@ export default function App() {
             season: correctionSeason,
             weather: correctionWeather,
             audioMode,
+            silentTalk: correctionSilentTalk,
             clothingDirective: combinedClothingDirective || undefined,
             shootGuideDirective: combinedPropDirective || undefined,
             clothingDirectives: clothingItems.map((c) => ({ title: c.title, directive: c.promptDirective || c.directive || '' })),
@@ -2646,6 +2664,7 @@ export default function App() {
         interactionId: data.interactionId,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         includeKhalle: correctionIncludeKhalle,
+        silentTalk: correctionSilentTalk,
       };
 
       setSessionCost((prev) => prev + (resolution === '1080p' ? 0.60 : 0.35));
@@ -2866,6 +2885,10 @@ export default function App() {
     if (openStoryLastScene && typeof openStoryLastScene.includeKhalle === 'boolean') {
       setIncludeKhalle(openStoryLastScene.includeKhalle);
     }
+    if (openStoryLastScene && typeof openStoryLastScene.silentTalk === 'boolean') {
+      setSilentTalk(openStoryLastScene.silentTalk);
+    }
+    if (openStoryLastScene?.audioMode) setAudioMode(openStoryLastScene.audioMode);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openStoryKey]);
 
@@ -2911,6 +2934,8 @@ export default function App() {
         sceneNumber: from ? (from.sceneNumber || 1) + 1 : to.sceneNumber || 1,
         interactionId: result.interactionId,
         includeKhalle: base.includeKhalle,
+        audioMode: base.audioMode,
+        silentTalk: base.silentTalk,
         storyTitle: base.storyTitle,
         ...castFieldsOf(base),
       };
@@ -3621,6 +3646,54 @@ export default function App() {
                 />
               </div>
 
+              {/* Talks without words: mouth and gestures as in speech, no voice (for a voice-over later) */}
+              <div className="flex flex-col gap-2.5 bg-slate-950 border border-slate-800 rounded-xl p-3">
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={silentTalk}
+                    aria-labelledby="silent-talk-label"
+                    onClick={() => {
+                      const on = !silentTalk;
+                      setSilentTalk(on);
+                      if (on && audioMode === 'with_sound') setAudioMode('no_voices');
+                    }}
+                    className={`relative w-11 h-6 rounded-full shrink-0 cursor-pointer ${silentTalk ? 'bg-emerald-500' : 'bg-slate-600'}`}
+                  >
+                    <span className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${silentTalk ? 'translate-x-5' : ''}`} />
+                  </button>
+                  <span id="silent-talk-label" className="text-sm">
+                    <strong className="text-white">Talks without words</strong>{' '}
+                    <span className="text-slate-400">(for a voice-over later)</span>
+                  </span>
+                </div>
+                {silentTalk && (
+                  <>
+                    <p className="text-xs text-slate-400">
+                      The character moves the mouth as if speaking, with gestures and expressions. No words or other voices are made.
+                    </p>
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Sound</span>
+                      <div className="flex flex-wrap gap-2">
+                        {([
+                          ['with_sound', 'On'],
+                          ['no_voices', 'Background only, no voices'],
+                          ['silent', 'Off'],
+                        ] as const).map(([id, text]) => (
+                          <button key={id} type="button" aria-pressed={audioMode === id} onClick={() => setAudioMode(id)} className={`min-h-[36px] px-3.5 rounded-full border text-sm font-medium transition-colors cursor-pointer ${audioMode === id ? 'bg-emerald-950/70 border-emerald-400 text-emerald-100' : 'bg-slate-950 border-slate-700 text-slate-300 hover:border-slate-500'}`}>
+                            {text}
+                          </button>
+                        ))}
+                      </div>
+                      {audioMode === 'with_sound' && (
+                        <p className="text-xs text-amber-200">With talking, "On" still gives no voices: only background sound.</p>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+
               <div className="flex flex-col gap-2">
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Season</span>
                 <div className="flex flex-wrap gap-2">
@@ -3849,8 +3922,15 @@ export default function App() {
                     <div className="flex flex-col gap-2">
                       <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Sound</span>
                       <div className="flex flex-wrap gap-2">
-                        <button type="button" aria-pressed={audioMode === 'with_sound'} onClick={() => setAudioMode('with_sound')} className={`min-h-[36px] px-3.5 rounded-full border text-sm font-medium transition-colors cursor-pointer ${audioMode === 'with_sound' ? 'bg-emerald-950/70 border-emerald-400 text-emerald-100' : 'bg-slate-950 border-slate-700 text-slate-300 hover:border-slate-500'}`}>On</button>
-                        <button type="button" aria-pressed={audioMode === 'silent'} onClick={() => setAudioMode('silent')} className={`min-h-[36px] px-3.5 rounded-full border text-sm font-medium transition-colors cursor-pointer ${audioMode === 'silent' ? 'bg-emerald-950/70 border-emerald-400 text-emerald-100' : 'bg-slate-950 border-slate-700 text-slate-300 hover:border-slate-500'}`}>Off</button>
+                        {([
+                          ['with_sound', 'On'],
+                          ['no_voices', 'Background only, no voices'],
+                          ['silent', 'Off'],
+                        ] as const).map(([id, text]) => (
+                          <button key={id} type="button" aria-pressed={audioMode === id} onClick={() => setAudioMode(id)} className={`min-h-[36px] px-3.5 rounded-full border text-sm font-medium transition-colors cursor-pointer ${audioMode === id ? 'bg-emerald-950/70 border-emerald-400 text-emerald-100' : 'bg-slate-950 border-slate-700 text-slate-300 hover:border-slate-500'}`}>
+                            {text}
+                          </button>
+                        ))}
                       </div>
                     </div>
                   </div>
@@ -5440,6 +5520,25 @@ export default function App() {
                       <strong className="text-white">{correctionIncludeKhalle ? 'Khalle in this version' : 'Khalle left out'}</strong>{' '}
                       <span className="text-slate-400">
                         {correctionIncludeKhalle ? 'His pictures and look are sent.' : 'for this new version only. No Khalle pictures, symbol or green-rabbit rule are sent.'}
+                      </span>
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-3 bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm">
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={correctionSilentTalk}
+                      aria-label="Talks without words in this new version"
+                      onClick={() => setCorrectionSilentTalk((v) => !v)}
+                      className={`relative w-11 h-6 rounded-full shrink-0 cursor-pointer ${correctionSilentTalk ? 'bg-emerald-500' : 'bg-slate-600'}`}
+                    >
+                      <span className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${correctionSilentTalk ? 'translate-x-5' : ''}`} />
+                    </button>
+                    <span>
+                      <strong className="text-white">Talks without words</strong>{' '}
+                      <span className="text-slate-400">
+                        {correctionSilentTalk ? 'The mouth moves as if speaking; no voices are made (for a voice-over later).' : '(off)'}
                       </span>
                     </span>
                   </div>

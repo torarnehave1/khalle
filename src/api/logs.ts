@@ -15,6 +15,7 @@ export interface GenerationLogRecord {
     duration?: string;
     resolution?: string;
     audioMode?: string;
+    silentTalk?: boolean;
     season?: string;
     weather?: string;
     customEmblemType?: string;
@@ -110,6 +111,7 @@ Video Settings:
 - Aspect Ratio: ${p.aspectRatio || '9:16'}
 - Duration:     ${p.duration || '5s'}
 - Audio Mode:   ${p.audioMode || 'with_sound'}
+- Talks without words: ${p.silentTalk ? 'YES (mouth moves, no voice)' : 'no'}
 - Khalle:       ${p.includeKhalle === false ? 'OFF (no Khalle pictures, symbol or identity rule sent)' : 'on'}
 - Atmosphere:   Season=${p.season || 'spring'}, Weather=${p.weather || 'sunny'}
 
