@@ -794,6 +794,8 @@ export default function App() {
   const [referenceAssets, setReferenceAssets] = useState<ReferenceAngle[]>(NO_SYMBOL_REFERENCE_ASSETS);
   const [activeStylistItems, setActiveStylistItems] = useState<StylistItem[]>([]);
   const [audioMode, setAudioMode] = useState<'with_sound' | 'silent'>('with_sound');
+  /** Off: Khalle's pictures, belly symbol and identity rule are left out of the request (for scenes about other characters). */
+  const [includeKhalle, setIncludeKhalle] = useState(true);
   const [showStylistModal, setShowStylistModal] = useState<boolean>(false);
   const [showTraitsTooltip, setShowTraitsTooltip] = useState<boolean>(false);
 
@@ -1650,6 +1652,7 @@ export default function App() {
         propDirectives: propItems.map((p) => ({ title: p.title, directive: p.promptDirective || p.directive || '' })),
         characterDirectives: characterItems.map((ch) => ({ title: ch.title, directive: ch.promptDirective || ch.directive || '' })),
         customEmblemType: activeEmblem?.type,
+        includeKhalle,
         customEmblemDirective: activeEmblem?.directive,
         customEmblemName: activeEmblem?.name,
         customEmblemImage: activeEmblem?.imageBase64 || activeEmblem?.imagePath,
@@ -2096,6 +2099,7 @@ export default function App() {
           propDirectives: propItems.map((p) => ({ title: p.title, directive: p.promptDirective || p.directive || '' })),
           characterDirectives: characterItems.map((ch) => ({ title: ch.title, directive: ch.promptDirective || ch.directive || '' })),
           customEmblemType: activeEmblem?.type,
+          includeKhalle,
           customEmblemDirective: activeEmblem?.directive,
           customEmblemName: activeEmblem?.name,
           customEmblemImage: activeEmblem?.imageBase64 || activeEmblem?.imagePath,
@@ -2340,6 +2344,7 @@ export default function App() {
           propDirectives: propItems.map((p) => ({ title: p.title, directive: p.promptDirective || p.directive || '' })),
           characterDirectives: characterItems.map((ch) => ({ title: ch.title, directive: ch.promptDirective || ch.directive || '' })),
           customEmblemType: activeEmblem?.type,
+          includeKhalle,
           customEmblemDirective: activeEmblem?.directive,
           customEmblemName: activeEmblem?.name,
           customEmblemImage: activeEmblem?.imageBase64 || activeEmblem?.imagePath,
@@ -2402,6 +2407,7 @@ export default function App() {
             propDirectives: propItems.map((p) => ({ title: p.title, directive: p.promptDirective || p.directive || '' })),
             characterDirectives: characterItems.map((ch) => ({ title: ch.title, directive: ch.promptDirective || ch.directive || '' })),
             customEmblemType: activeEmblem?.type,
+            includeKhalle,
             customEmblemDirective: activeEmblem?.directive,
             customEmblemName: activeEmblem?.name,
             customEmblemImage: activeEmblem?.imageBase64 || activeEmblem?.imagePath,
@@ -3445,6 +3451,28 @@ export default function App() {
                     </button>
                   )}
                 </div>
+              </div>
+
+              {/* Khalle in this scene: off for scenes about other characters */}
+              <div className="pt-2 border-t border-slate-800/80 flex flex-col gap-1.5">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Khalle in this scene</span>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={includeKhalle}
+                    aria-label="Khalle in this scene"
+                    onClick={() => setIncludeKhalle((v) => !v)}
+                    className={`relative w-10 h-5 rounded-full transition-colors cursor-pointer shrink-0 ${includeKhalle ? 'bg-emerald-500' : 'bg-slate-700'}`}
+                  >
+                    <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${includeKhalle ? 'translate-x-5' : ''}`} />
+                  </button>
+                </div>
+                <p className={`text-[10px] ${includeKhalle ? 'text-slate-500' : 'text-amber-300'}`}>
+                  {includeKhalle
+                    ? 'On: Khalle\'s pictures and the rule that the hero is the green rabbit are sent with every scene.'
+                    : 'Off: no Khalle pictures, belly symbol or green-rabbit rule are sent. Gemini shows only the characters in the start picture and your text. Applies to new scenes, extensions and corrections until you turn it back on.'}
+                </p>
               </div>
 
               {/* Production Cast, Props & Wardrobe Active Bar */}

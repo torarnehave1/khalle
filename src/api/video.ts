@@ -10,6 +10,7 @@ import type { RouteHandler } from './http';
 import { quotaState, recentGenerationLogs, recordGenerationLog, type GenerationLogRecord } from './logs';
 import {
   formatProductionDirectives,
+  excludesKhalle,
   getCharacterDirective,
   resolveReferenceImages,
   sanitizePromptToImageReference,
@@ -71,6 +72,7 @@ export async function executeAnimateCore(body: any) {
       customEmblemName: body.customEmblemName,
       customEmblemUrl: body.customEmblemUrl,
       disableMorph: body.disableMorph,
+      includeKhalle: body.includeKhalle,
       enableMorph: body.enableMorph,
       referenceImagesCount: Array.isArray(body.referenceImages) ? body.referenceImages.length : 0,
       clientReferenceImagesList: Array.isArray(body.referenceImages)
@@ -96,7 +98,8 @@ export async function executeAnimateCore(body: any) {
   };
 
   const resolvedImages = await resolveReferenceImages(body);
-  if (resolvedImages.length === 0) {
+  // With Khalle switched off and no start picture, the video is made from the text alone.
+  if (resolvedImages.length === 0 && !excludesKhalle(body)) {
     logRecord.status = 'failed';
     logRecord.geminiInteraction = {
       model: 'gemini-omni-1.2-flash',
@@ -145,7 +148,7 @@ The following ${resolvedImages.length} reference images are attached in order in
   }
 
   const sanitizedPrompt = sanitizePromptToImageReference(prompt.trim(), resolvedImages);
-  const lockedPrompt = `${imageManifest}\n\n${fullDirectives}\n\n[ANIMATION SCENE ACTION DIRECTIVE]:\n${sanitizedPrompt}`;
+  const lockedPrompt = `${resolvedImages.length ? `${imageManifest}\n\n` : ''}${fullDirectives}\n\n[ANIMATION SCENE ACTION DIRECTIVE]:\n${sanitizedPrompt}`;
 
   inputParts.push({
     type: 'text',
@@ -417,6 +420,7 @@ export async function executeExtendCore(body: any) {
       customEmblemName: body.customEmblemName,
       customEmblemUrl: body.customEmblemUrl,
       disableMorph: body.disableMorph,
+      includeKhalle: body.includeKhalle,
       enableMorph: body.enableMorph,
       referenceImagesCount: Array.isArray(body.referenceImages) ? body.referenceImages.length : 0,
       clientReferenceImagesList: Array.isArray(body.referenceImages)
@@ -477,7 +481,7 @@ The following ${resolvedImages.length} reference images are attached in order in
   }
 
   const sanitizedContinuationPrompt = sanitizePromptToImageReference(continuationPrompt.trim(), resolvedImages);
-  const lockedContinuationPrompt = `${imageManifest}\n\n${fullDirectives}\n\n[SCENE CONTINUATION DIRECTIVE]:\n${sanitizedContinuationPrompt}`;
+  const lockedContinuationPrompt = `${resolvedImages.length ? `${imageManifest}\n\n` : ''}${fullDirectives}\n\n[SCENE CONTINUATION DIRECTIVE]:\n${sanitizedContinuationPrompt}`;
   inputParts.push({
     type: 'text',
     text: lockedContinuationPrompt,

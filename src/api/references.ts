@@ -184,7 +184,16 @@ export function isTransformationRequest(body: any): boolean {
 
 export const isNoSymbolRequest = (body: any): boolean => body?.customEmblemType === 'none';
 
+/** The "Khalle in this scene" switch is off: no Khalle pictures, symbol or identity rule are sent. */
+export const excludesKhalle = (body: any): boolean => body?.includeKhalle === false;
+
 export function getCharacterDirective(body: any, resolvedImages?: ResolvedImage[]): string {
+  if (excludesKhalle(body)) {
+    // The green rabbit is not named here: naming a character in a prohibition tends to summon it.
+    return `[CHARACTERS IN THIS SCENE]:
+Show only the characters seen in the start frame and the characters the scene text describes.
+Do NOT add any other character at any moment, not even small, distant or in the background.`;
+  }
   if (isNoSymbolRequest(body)) {
     return `[STRICT CHARACTER IDENTITY & PLAIN BELLY]:
 The subject MUST be the green plush rabbit doll shown in the reference images.
@@ -745,14 +754,26 @@ export async function resolveReferenceImages(body: any): Promise<ResolvedImage[]
     if (chosenIsWayfinder) return /1790924612634|rabbit_original_emblem_medallion|07de772c/i.test(text);
     return false;
   };
+  const noKhalle = excludesKhalle(body);
   for (const ref of clientRefs) {
     if (!ref || ref.enabled === false) continue;
+    // Khalle switched off: leave out the locked pictures of him (and any symbol picture).
+    if (noKhalle && (isHeroRabbitAsset(ref) || showsSymbol(ref) || /silhouette|medallion/i.test(ref.label || ''))) continue;
     if (isNoSymbolRequest(body) && showsSymbol(ref)) continue;
     if (showsWrongSymbol(ref)) continue;
     if (promptMentionedClientRefs.includes(ref)) continue;
     const { role, desc } = getAssetRoleAndDesc(ref);
     const resolved = await resolveAnyRefAsset(ref, role, desc);
     if (resolved) addUnique(resolved);
+  }
+
+  // Without Khalle there is no belly symbol and no hero picture: stop before 1D and priority 2.
+  if (noKhalle) {
+    const own = results.slice(0, 6);
+    own.forEach((img, idx) => {
+      img.index = idx + 1;
+    });
+    return own;
   }
 
   // 1D. Explicit Custom Emblem URLs or Custom Emblem Image if user explicitly configured custom emblem
@@ -1082,6 +1103,20 @@ export function formatProductionDirectives(body: any, resolvedImages?: ResolvedI
   }
   if (allCharacters.length > 0) {
     text += `\n\n[CAST ENSEMBLE & COMPANION CHARACTERS (${allCharacters.length} COMPANION${allCharacters.length > 1 ? 'S' : ''})]:\nIn addition to the primary hero green plush rabbit, the video features the following companion character(s):\n${allCharacters.map((d, i) => `${i + 1}. ${d}`).join('\n')}\nEnsure all companion characters share the same adorable plush/felt toy visual style, interact happily and harmoniously with the green plush rabbit, and do not overshadow the rabbit as the central hero.`;
+  }
+
+  // Khalle switched off: these directives are written about him; point them at the scene's own character.
+  if (excludesKhalle(body)) {
+    text = text
+      .replace(/the primary hero green plush rabbit/gi, 'the main character')
+      .replace(/the green plush rabbit character/gi, 'the main character')
+      .replace(/the green plush rabbit/gi, 'the main character')
+      .replace(/the rabbit's paws/gi, "the main character's paws")
+      .replace(/by the rabbit/gi, 'by the main character')
+      .replace(/with the rabbit/gi, 'with the main character')
+      .replace(/the rabbit as the central hero/gi, 'the main character')
+      .replace(/alongside him/gi, 'alongside them')
+      .replace(/his companion friend/gi, 'a companion friend');
   }
 
   return text;

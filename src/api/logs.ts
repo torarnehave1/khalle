@@ -21,6 +21,7 @@ export interface GenerationLogRecord {
     customEmblemName?: string;
     customEmblemUrl?: string;
     disableMorph?: boolean;
+    includeKhalle?: boolean;
     enableMorph?: boolean;
     referenceImagesCount?: number;
     clientReferenceImagesList?: Array<{
@@ -109,6 +110,7 @@ Video Settings:
 - Aspect Ratio: ${p.aspectRatio || '9:16'}
 - Duration:     ${p.duration || '5s'}
 - Audio Mode:   ${p.audioMode || 'with_sound'}
+- Khalle:       ${p.includeKhalle === false ? 'OFF (no Khalle pictures, symbol or identity rule sent)' : 'on'}
 - Atmosphere:   Season=${p.season || 'spring'}, Weather=${p.weather || 'sunny'}
 
 Emblem & Metamorphosis Settings:
