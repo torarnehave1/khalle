@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { X, RefreshCw, Check, Upload } from 'lucide-react';
+import { X, RefreshCw, Check, Upload, Play } from 'lucide-react';
 import {
   albumPictureAsDataUrl,
   listAlbumPictures,
   listAlbums,
   savePictureToAlbum,
   thumbnailUrl,
+  videoFrameAsDataUrl,
   type AlbumPicture,
   type AlbumSummary,
 } from '../api/albums';
@@ -40,6 +41,10 @@ export default function AlbumPicker({ destinations, initial, onClose, onUse }: P
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<'' | 'loading' | 'using' | 'uploading'>('');
   const uploadRef = useRef<HTMLInputElement | null>(null);
+  /** The picked video, where the user finds the frame to use. */
+  const frameRef = useRef<HTMLVideoElement | null>(null);
+  const [frameAt, setFrameAt] = useState(0);
+  const [frameLen, setFrameLen] = useState(0);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
@@ -89,9 +94,16 @@ export default function AlbumPicker({ destinations, initial, onClose, onUse }: P
     setBusy('using');
     setError(null);
     try {
-      onUse(await albumPictureAsDataUrl(picked.url), dest);
+      if (picked.isVideo) {
+        const v = frameRef.current;
+        if (!v || !v.videoWidth) throw new Error('the video has not loaded yet');
+        v.pause();
+        onUse(videoFrameAsDataUrl(v), dest);
+      } else {
+        onUse(await albumPictureAsDataUrl(picked.url), dest);
+      }
     } catch (e: any) {
-      setError(`The picture could not be fetched: ${e?.message || e}`);
+      setError(`${picked.isVideo ? 'The frame' : 'The picture'} could not be taken: ${e?.message || e}`);
       setBusy('');
     }
   };
@@ -175,12 +187,55 @@ export default function AlbumPicker({ destinations, initial, onClose, onUse }: P
 
           <div className="flex-[1_1_420px] min-w-0 p-4 sm:p-5 flex flex-col gap-3">
             <div className="flex justify-between items-baseline gap-2">
-              <span className={label}>{album ? `${album}${pictures ? ` · ${pictures.length} photos` : ''}` : 'Pick an album'}</span>
+              <span className={label}>{album ? `${album}${pictures ? ` · ${pictures.length} ${pictures.length === 1 ? 'item' : 'items'}` : ''}` : 'Pick an album'}</span>
               {picked && <span className="text-sm text-slate-400">1 selected</span>}
             </div>
             {error && <p className="text-sm text-rose-300">{error}</p>}
             {album && !pictures && !error && <p className="text-sm text-slate-400 flex items-center gap-2"><RefreshCw className="w-4 h-4 animate-spin" /> Loading photos…</p>}
-            {pictures && !pictures.length && !error && <p className="text-sm text-slate-400">This album has no photos yet.</p>}
+            {pictures && !pictures.length && !error && <p className="text-sm text-slate-400">This album has no photos or videos yet.</p>}
+            {picked?.isVideo && (
+              <div className="flex flex-col gap-2 bg-slate-950 border border-emerald-700/60 rounded-xl p-3">
+                <span className="text-sm text-slate-200">
+                  <strong className="text-white">Pick the frame.</strong> Play, pause or drag to the moment you want. That frame is used as a picture.
+                </span>
+                <video
+                  key={picked.key}
+                  ref={frameRef}
+                  src={picked.url}
+                  crossOrigin="anonymous"
+                  controls
+                  muted
+                  playsInline
+                  preload="auto"
+                  onLoadedMetadata={(e) => setFrameLen(e.currentTarget.duration || 0)}
+                  onTimeUpdate={(e) => setFrameAt(e.currentTarget.currentTime)}
+                  className="max-h-[42vh] w-auto self-center rounded-lg bg-black"
+                />
+                {frameLen > 0 && (
+                  <div className="flex items-center gap-3">
+                    <label htmlFor="frame-at" className="text-xs text-slate-400 shrink-0">Frame at {frameAt.toFixed(1)} s</label>
+                    <input
+                      id="frame-at"
+                      type="range"
+                      min={0}
+                      max={frameLen}
+                      step={0.04}
+                      value={frameAt}
+                      onChange={(e) => {
+                        const v = frameRef.current;
+                        const t = Number(e.target.value);
+                        setFrameAt(t);
+                        if (v) {
+                          v.pause();
+                          v.currentTime = t;
+                        }
+                      }}
+                      className="flex-1 accent-emerald-400"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
             <div className="grid grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-2.5">
               {(pictures || []).map((p) => {
                 const on = picked?.key === p.key;
@@ -190,10 +245,23 @@ export default function AlbumPicker({ destinations, initial, onClose, onUse }: P
                     type="button"
                     aria-pressed={on}
                     aria-label={p.key.split('/').pop()}
-                    onClick={() => setPicked(on ? null : p)}
+                    onClick={() => {
+                      setPicked(on ? null : p);
+                      setFrameAt(0);
+                      setFrameLen(0);
+                    }}
                     className={`relative aspect-square rounded-lg overflow-hidden bg-slate-950 border-2 cursor-pointer ${on ? 'border-emerald-400' : 'border-transparent hover:border-slate-600'}`}
                   >
-                    <img src={thumbnailUrl(p.url)} alt="" loading="lazy" className="w-full h-full object-cover" />
+                    {p.isVideo ? (
+                      <>
+                        <video src={`${p.url}#t=0.5`} muted playsInline preload="metadata" className="w-full h-full object-cover pointer-events-none" />
+                        <span className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/70 text-[11px] text-white flex items-center gap-1">
+                          <Play className="w-3 h-3" /> Video
+                        </span>
+                      </>
+                    ) : (
+                      <img src={thumbnailUrl(p.url)} alt="" loading="lazy" className="w-full h-full object-cover" />
+                    )}
                     {on && (
                       <span className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-emerald-400 text-slate-950 flex items-center justify-center">
                         <Check className="w-4 h-4" />
@@ -233,7 +301,9 @@ export default function AlbumPicker({ destinations, initial, onClose, onUse }: P
             className="min-h-[48px] px-5 rounded-xl bg-emerald-400 hover:bg-emerald-300 text-slate-950 font-bold text-base disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
           >
             {busy === 'using' && <RefreshCw className="w-4 h-4 animate-spin" />}
-            {busy === 'using' ? 'Getting the picture…' : destinations.length > 1 ? `Use as ${destLabel.toLowerCase()}` : destLabel}
+            {busy === 'using'
+              ? 'Getting the picture…'
+              : `${picked?.isVideo ? 'Use this frame' : 'Use'}${destinations.length > 1 ? ` as ${destLabel.toLowerCase()}` : ` · ${destLabel.toLowerCase()}`}`}
           </button>
         </div>
       </div>

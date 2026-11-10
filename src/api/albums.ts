@@ -17,7 +17,9 @@ const PHOTOS_BASE = 'https://photos-api.vegvisr.org';
 export const GEMINI_ALBUM = 'Khalle – made by Gemini';
 
 export type AlbumSummary = { name: string; imageCount?: number; updatedAt?: string | null };
-export type AlbumPicture = { key: string; url: string };
+export type AlbumPicture = { key: string; url: string; isVideo?: boolean };
+
+const VIDEO_RE = /\.(mp4|mov|m4v|webm)(\?|$)/i;
 
 async function call(url: string, init: RequestInit = {}): Promise<Response> {
   const token = getApiToken();
@@ -50,9 +52,21 @@ export async function listAlbumPictures(album: string): Promise<AlbumPicture[]> 
   const res = await call(`${PHOTOS_BASE}/list-r2-images?album=${encodeURIComponent(album)}`, { cache: 'no-store' });
   const body = await res.json();
   return ((body?.images as any[]) || [])
-    // Albums can hold videos too; only pictures are offered here.
-    .filter((i) => i?.url && !/\.(mp4|mov|m4v|webm|avi|mkv|mp3|wav|m4a|pdf)(\?|$)/i.test(String(i.key || i.url)))
-    .map((i) => ({ key: String(i.key), url: String(i.url) }));
+    // Pictures and videos (a frame of a video can be used as a picture). Sound and documents are left out.
+    .filter((i) => i?.url && !/\.(avi|mkv|mp3|wav|m4a|pdf)(\?|$)/i.test(String(i.key || i.url)))
+    .map((i) => ({ key: String(i.key), url: String(i.url), isVideo: VIDEO_RE.test(String(i.key || i.url)) }));
+}
+
+/**
+ * The frame a video element shows now, as a JPEG data URL. The element must be loaded with
+ * crossOrigin="anonymous" (imgix allows it; otherwise the canvas is blocked and this throws).
+ */
+export function videoFrameAsDataUrl(video: HTMLVideoElement): string {
+  const c = document.createElement('canvas');
+  c.width = video.videoWidth;
+  c.height = video.videoHeight;
+  c.getContext('2d')!.drawImage(video, 0, 0, c.width, c.height);
+  return c.toDataURL('image/jpeg', 0.92);
 }
 
 /** A small version for the grid when the host can resize (imgix), else the picture itself. */
