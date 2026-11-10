@@ -600,6 +600,8 @@ export interface GeneratedVideo {
   /** Edit list: play only this part of the clip (seconds). The clip file itself is never cut. */
   trimStart?: number;
   trimEnd?: number;
+  /** The story's name, kept on every scene of the story (set with Rename on the Stories page). */
+  storyTitle?: string;
   /**
    * Extension only: where its own new part begins in the clip, found from the frames (src/lib/seam.ts).
    * The scene it continues stops here when the two play in a row (storyPlayEnd).
@@ -818,6 +820,12 @@ export default function App() {
   const appendToStoryRef = useRef<string | null>(null);
   /** The "+ Before" / "+ After" choice on a scene card: make it with AI or upload a clip. */
   const [addMenu, setAddMenu] = useState<{ sceneId: string; side: 'before' | 'after' } | null>(null);
+  /** 'stories' shows the Stories page instead of the make-a-scene screen. */
+  const [view, setView] = useState<'make' | 'stories'>('make');
+  /** Story being renamed on the Stories page, and the text typed so far. */
+  const [renaming, setRenaming] = useState<{ storyId: string; text: string } | null>(null);
+  /** The ⋯ "Move or copy" menu on a scene card: which scene, to which story ('new' = a new story), at which slot. */
+  const [moveMenu, setMoveMenu] = useState<{ sceneId: string; storyId: string; index: number } | null>(null);
   const [showStylistModal, setShowStylistModal] = useState<boolean>(false);
   const [showTraitsTooltip, setShowTraitsTooltip] = useState<boolean>(false);
 
@@ -1120,9 +1128,11 @@ export default function App() {
       setErrorMessage(`That story is ${target[0].aspectRatio} and the scene is ${scene.aspectRatio}. A story can't mix the two shapes.`);
       return;
     }
+    // The scene takes the name of the story it lands in (none for a new story).
+    const targetTitle = target.find((v) => v.storyTitle)?.storyTitle;
     const placed: GeneratedVideo = copy
-      ? { ...scene, id: `vid-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, storyId: targetStoryId }
-      : { ...scene, storyId: targetStoryId };
+      ? { ...scene, id: `vid-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, storyId: targetStoryId, storyTitle: targetTitle }
+      : { ...scene, storyId: targetStoryId, storyTitle: targetTitle };
     // A move within one story is handled above, so `target` holds the scene itself only for a copy.
     target.splice(Math.max(0, Math.min(target.length, toIndex)), 0, placed);
     const groups = new Map<string, GeneratedVideo[]>();
@@ -1463,6 +1473,20 @@ export default function App() {
   }, [videoHistory]);
 
   // Close the open story; the next Generate or Upload Video starts a new one.
+  /** A story's name: the one set with Rename, else the start of its first scene's text. */
+  const storyName = (scenes: GeneratedVideo[]) => {
+    const t = scenes.find((v) => v.storyTitle)?.storyTitle;
+    if (t) return t;
+    const first = (scenes[0]?.prompt || 'Untitled story').trim();
+    return first.length > 48 ? `${first.slice(0, 48).trim()}…` : first;
+  };
+  const renameStory = (storyId: string, title: string) => {
+    const name = title.trim().slice(0, 80) || undefined;
+    const next = videoHistoryRef.current.map((v) => (v.storyId === storyId ? { ...v, storyTitle: name } : v));
+    videoHistoryRef.current = next;
+    setVideoHistory(next);
+  };
+
   const handleStartNewStory = () => {
     setCurrentVideo(null);
     setCompareMode('video');
@@ -3056,10 +3080,16 @@ export default function App() {
             </button>
             <button
               type="button"
-              onClick={() => document.getElementById('stories')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-              className="min-h-[40px] px-3 rounded-lg text-sm font-medium border border-slate-700 text-slate-200 hover:border-emerald-500 cursor-pointer"
+              aria-current={view === 'stories' ? 'page' : undefined}
+              onClick={() => {
+                setView((v) => (v === 'stories' ? 'make' : 'stories'));
+                window.scrollTo({ top: 0 });
+              }}
+              className={`min-h-[40px] px-3 rounded-lg text-sm font-medium border cursor-pointer ${
+                view === 'stories' ? 'border-emerald-400 bg-emerald-950/70 text-emerald-100' : 'border-slate-700 text-slate-200 hover:border-emerald-500'
+              }`}
             >
-              Stories ({stories.length})
+              {view === 'stories' ? 'Back to the scene' : `Stories (${stories.length})`}
             </button>
             <div className="flex items-center rounded-lg border border-slate-700">
               <button
@@ -3086,7 +3116,260 @@ export default function App() {
       </header>
 
       {/* Main Studio Layout */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 lg:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+      {view === 'stories' && (
+        <main id="stories" className="flex-1 max-w-7xl w-full mx-auto p-4 lg:p-6 flex flex-col gap-5">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h1 className="text-2xl font-bold text-white">Stories</h1>
+              <p className="text-sm text-slate-400 mt-1">
+                Drag a scene into any story to move it. Hold Alt (Option) while dropping to copy it. On a phone, use the ⋯ button on the scene.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                handleStartNewStory();
+                setView('make');
+              }}
+              className="min-h-[44px] px-4 rounded-lg border border-slate-700 text-sm font-medium text-slate-200 hover:border-emerald-500 flex items-center gap-1.5 cursor-pointer"
+            >
+              <PlusCircle className="w-4 h-4 text-emerald-400" /> New story
+            </button>
+          </div>
+
+          {stories.length === 0 && (
+            <p className="text-sm text-slate-400 bg-slate-900/80 border border-slate-800 rounded-2xl p-5">
+              No stories yet. Go back, make a scene, and it becomes the first scene of your first story.
+            </p>
+          )}
+
+          {stories.map(({ storyId, scenes }) => {
+            const isOpen = !!currentVideo && (currentVideo.storyId || currentVideo.id) === storyId;
+            const seconds = scenes.reduce((sum, sc) => sum + scenePlaySeconds(sc), 0);
+            const shape = scenes[0]?.aspectRatio === '16:9' ? 'Wide 16:9' : 'Tall 9:16';
+            const dropHere = !!dragSceneId && dropTarget?.storyId === storyId;
+            return (
+              <section
+                key={storyId}
+                aria-label={`Story: ${storyName(scenes)}`}
+                onDragOver={(e) => sceneDragOver(e, storyId, 'end')}
+                onDrop={sceneDrop}
+                className={`rounded-2xl p-4 flex flex-col gap-3 border ${
+                  dropHere
+                    ? dropTarget!.blocked
+                      ? 'bg-rose-950/20 border-rose-700/70'
+                      : dropTarget!.copy
+                      ? 'bg-sky-950/20 border-sky-500/70'
+                      : 'bg-emerald-950/30 border-emerald-400'
+                    : isOpen
+                    ? 'bg-slate-900/80 border-emerald-700/60'
+                    : 'bg-slate-900/80 border-slate-800'
+                }`}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  {renaming?.storyId === storyId ? (
+                    <form
+                      className="flex flex-wrap items-center gap-2"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        renameStory(storyId, renaming.text);
+                        setRenaming(null);
+                      }}
+                    >
+                      <label htmlFor={`rename-${storyId}`} className="sr-only">Story name</label>
+                      <input
+                        id={`rename-${storyId}`}
+                        autoFocus
+                        value={renaming.text}
+                        maxLength={80}
+                        onChange={(e) => setRenaming({ storyId, text: e.target.value })}
+                        className="min-h-[40px] w-64 max-w-full bg-slate-950 border border-slate-600 rounded-lg px-3 text-sm text-white focus:outline-none focus:border-emerald-500"
+                      />
+                      <button type="submit" className="min-h-[40px] px-3 rounded-lg bg-emerald-400 text-slate-950 text-sm font-bold cursor-pointer">Save name</button>
+                      <button type="button" onClick={() => setRenaming(null)} className="min-h-[40px] px-3 rounded-lg text-sm text-slate-400 hover:text-slate-200 cursor-pointer">Cancel</button>
+                    </form>
+                  ) : (
+                    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 min-w-0">
+                      <h2 className="text-lg font-semibold text-white truncate">{storyName(scenes)}</h2>
+                      <span className="text-sm text-slate-400">
+                        {scenes.length} {scenes.length === 1 ? 'scene' : 'scenes'} · {Math.round(seconds)} s · {shape}
+                        {isOpen ? ' · open' : ''}
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCurrentVideo(scenes[0]);
+                        setCompareMode('video');
+                        setView('make');
+                        window.scrollTo({ top: 0 });
+                      }}
+                      className="min-h-[40px] px-3 rounded-lg border border-slate-700 text-sm text-slate-200 hover:border-emerald-500 cursor-pointer"
+                    >
+                      Open
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRenaming({ storyId, text: scenes.find((v) => v.storyTitle)?.storyTitle || '' })}
+                      className="min-h-[40px] px-3 rounded-lg border border-slate-700 text-sm text-slate-200 hover:border-emerald-500 cursor-pointer"
+                    >
+                      Rename
+                    </button>
+                  </div>
+                </div>
+
+                {dropHere && (
+                  <p className={`text-sm font-medium ${dropTarget!.blocked ? 'text-rose-300' : dropTarget!.copy ? 'text-sky-300' : 'text-emerald-300'}`}>
+                    {dropTarget!.blocked
+                      ? `Can't drop here: ${dropTarget!.blocked}.`
+                      : `Drop to ${dropTarget!.copy ? 'copy' : 'move'} the scene here as Scene ${dropTarget!.landsAs}.${dropTarget!.copy ? '' : ' Hold Alt (Option) to copy instead.'}`}
+                  </p>
+                )}
+
+                <div className="flex gap-3 overflow-x-auto pb-1 items-start">
+                  {scenes.map((vid, idx) => {
+                    const menuOpen = moveMenu?.sceneId === vid.id;
+                    const sameShape = stories.filter(
+                      (st) => st.storyId !== storyId && (st.scenes[0]?.aspectRatio || vid.aspectRatio) === vid.aspectRatio
+                    );
+                    const targetScenes = moveMenu && moveMenu.storyId !== 'new' ? stories.find((st) => st.storyId === moveMenu.storyId)?.scenes || [] : [];
+                    return (
+                      <div key={vid.id} className="shrink-0 flex items-start gap-3">
+                        <div
+                          draggable
+                          onDragStart={(e) => startSceneDrag(e, vid.id)}
+                          onDragOver={(e) => sceneDragOver(e, storyId, idx)}
+                          onDrop={sceneDrop}
+                          onDragEnd={endSceneDrag}
+                          title="Drag into any story to move this scene. Hold Alt (Option) to copy it instead"
+                          className={`w-40 p-2 rounded-xl border bg-slate-950 flex flex-col gap-1.5 cursor-grab ${dragSceneId === vid.id ? 'opacity-40 ' : ''}${dropBar(storyId, idx, vid.id)}${
+                            menuOpen ? 'border-emerald-400' : 'border-slate-800'
+                          }`}
+                        >
+                          <div className={`relative rounded-lg overflow-hidden bg-slate-900 ${vid.aspectRatio === '16:9' ? 'h-20' : 'h-36'}`}>
+                            <video
+                              key={`${vid.id}-${vid.trimStart ?? 0}`}
+                              src={vid.videoUrl}
+                              preload="metadata"
+                              muted
+                              onLoadedMetadata={(e) => {
+                                if (vid.trimStart) e.currentTarget.currentTime = vid.trimStart;
+                              }}
+                              className="w-full h-full object-cover pointer-events-none"
+                            />
+                          </div>
+                          <div className="flex items-start justify-between gap-1">
+                            <span className="text-xs text-slate-300 leading-snug line-clamp-2" title={vid.prompt}>
+                              <strong className="text-white">{idx + 1}</strong> · {vid.prompt}
+                            </span>
+                            <button
+                              type="button"
+                              aria-label={`Move or copy Scene ${idx + 1}`}
+                              aria-expanded={menuOpen}
+                              onClick={() =>
+                                setMoveMenu(
+                                  menuOpen
+                                    ? null
+                                    : {
+                                        sceneId: vid.id,
+                                        storyId: sameShape[0]?.storyId || 'new',
+                                        index: sameShape[0]?.scenes.length ?? 0,
+                                      }
+                                )
+                              }
+                              className="shrink-0 w-9 h-9 rounded-lg border border-slate-700 text-slate-200 hover:border-emerald-500 font-bold cursor-pointer"
+                            >
+                              ⋯
+                            </button>
+                          </div>
+                        </div>
+
+                        {menuOpen && moveMenu && (
+                          <div role="dialog" aria-label={`Move or copy Scene ${idx + 1}`} className="w-72 p-3.5 rounded-xl bg-slate-900 border border-emerald-500/70 flex flex-col gap-2.5">
+                            <strong className="text-sm text-white">Move or copy Scene {idx + 1}</strong>
+                            <label htmlFor={`to-story-${vid.id}`} className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">To story</label>
+                            <select
+                              id={`to-story-${vid.id}`}
+                              value={moveMenu.storyId}
+                              onChange={(e) => {
+                                const sid = e.target.value;
+                                const len = sid === 'new' ? 0 : stories.find((st) => st.storyId === sid)?.scenes.length ?? 0;
+                                setMoveMenu({ sceneId: vid.id, storyId: sid, index: len });
+                              }}
+                              className="min-h-[44px] bg-slate-950 border border-slate-600 rounded-lg px-2.5 text-sm text-white"
+                            >
+                              {stories.map((st) => {
+                                const fits = (st.scenes[0]?.aspectRatio || vid.aspectRatio) === vid.aspectRatio;
+                                return (
+                                  <option key={st.storyId} value={st.storyId} disabled={!fits}>
+                                    {storyName(st.scenes)}
+                                    {st.storyId === storyId ? ' (this story)' : ''}
+                                    {fits ? '' : ` (${st.scenes[0]?.aspectRatio === '16:9' ? 'wide 16:9' : 'tall 9:16'}, can't take it)`}
+                                  </option>
+                                );
+                              })}
+                              <option value="new">A new story</option>
+                            </select>
+                            {moveMenu.storyId !== 'new' && (
+                              <>
+                                <label htmlFor={`to-place-${vid.id}`} className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Place</label>
+                                <select
+                                  id={`to-place-${vid.id}`}
+                                  value={moveMenu.index}
+                                  onChange={(e) => setMoveMenu({ ...moveMenu, index: Number(e.target.value) })}
+                                  className="min-h-[44px] bg-slate-950 border border-slate-600 rounded-lg px-2.5 text-sm text-white"
+                                >
+                                  <option value={0}>First</option>
+                                  {targetScenes.map((t, k) =>
+                                    k < targetScenes.length - 1 ? (
+                                      <option key={t.id} value={k + 1}>
+                                        After Scene {k + 1}
+                                      </option>
+                                    ) : null
+                                  )}
+                                  {targetScenes.length > 0 && <option value={targetScenes.length}>Last (after Scene {targetScenes.length})</option>}
+                                </select>
+                              </>
+                            )}
+                            <div className="grid grid-cols-2 gap-2 mt-1">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const sid = moveMenu.storyId === 'new' ? `story-${Date.now()}` : moveMenu.storyId;
+                                  placeScene(vid.id, sid, moveMenu.index, true);
+                                  setMoveMenu(null);
+                                }}
+                                className="min-h-[44px] rounded-lg border border-slate-600 text-sm font-medium text-slate-200 hover:border-emerald-500 cursor-pointer"
+                              >
+                                Copy
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const sid = moveMenu.storyId === 'new' ? `story-${Date.now()}` : moveMenu.storyId;
+                                  placeScene(vid.id, sid, moveMenu.index, false);
+                                  setMoveMenu(null);
+                                }}
+                                className="min-h-[44px] rounded-lg bg-emerald-400 hover:bg-emerald-300 text-slate-950 text-sm font-bold cursor-pointer"
+                              >
+                                Move
+                              </button>
+                            </div>
+                            <p className="text-xs text-slate-400">A moved scene keeps its video. The cut where it lands may jump; use Smooth cut there.</p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            );
+          })}
+        </main>
+      )}
+      <main className={`${view === 'stories' ? 'hidden ' : ''}flex-1 max-w-7xl w-full mx-auto p-4 lg:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6`}>
         {/* Left column: 1 Who and where, 2 What happens, Generate */}
         <section aria-label="Make a scene" className="lg:col-span-5 flex flex-col bg-slate-900/80 border border-slate-800 rounded-2xl shadow-xl self-start">
           <div className="p-4 sm:p-5 flex flex-col gap-5">
@@ -4831,123 +5114,6 @@ export default function App() {
             </div>
           )}
 
-          {/* Stories: every story with its scenes; click a scene to open that story */}
-          {videoHistory.length > 0 && (
-            <div id="stories" className="scroll-mt-24 bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-xl flex flex-col gap-4">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                  <Film className="w-3.5 h-3.5 text-lime-400" /> Stories ({stories.length})
-                </span>
-                <button
-                  type="button"
-                  onClick={handleStartNewStory}
-                  className="text-[11px] px-2.5 py-1 rounded-lg border flex items-center gap-1.5 cursor-pointer bg-slate-950 border-slate-700 text-slate-200 hover:border-emerald-500"
-                >
-                  <PlusCircle className="w-3.5 h-3.5 text-emerald-400" /> New story
-                </button>
-              </div>
-              {!currentVideo && (
-                <p className="text-xs text-emerald-200 bg-emerald-950/40 border border-emerald-800/60 rounded-lg p-2.5">
-                  New story: generate the first scene at the top of the page, or use Upload Video. Click any scene below to go back to an older story.
-                </p>
-              )}
-              {stories.map(({ storyId, scenes }) => {
-                const isOpen = !!currentVideo && (currentVideo.storyId || currentVideo.id) === storyId;
-                const seconds = storyPlaySeconds(scenes);
-                return (
-                  <section
-                    key={storyId}
-                    onDragOver={(e) => sceneDragOver(e, storyId, 'end')}
-                    onDrop={sceneDrop}
-                    className={`flex flex-col gap-2 rounded-xl p-2 ${
-                      dragSceneId && dropTarget?.storyId === storyId
-                        ? dropTarget.blocked
-                          ? 'bg-rose-950/20 ring-1 ring-rose-700/60'
-                          : dropTarget.copy
-                          ? 'bg-sky-950/20 ring-1 ring-sky-600/60'
-                          : 'bg-emerald-950/30 ring-1 ring-emerald-500/60'
-                        : isOpen
-                        ? 'bg-emerald-950/20 ring-1 ring-emerald-700/50'
-                        : ''
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 text-[11px] text-slate-400 min-w-0">
-                      <span className={`font-semibold shrink-0 ${isOpen ? 'text-emerald-300' : 'text-slate-200'}`}>
-                        {isOpen ? 'Open story' : 'Story'}
-                      </span>
-                      <span className="truncate">{scenes[0]?.prompt}</span>
-                      <span className="shrink-0 font-mono text-slate-500">
-                        {scenes.length} {scenes.length === 1 ? 'scene' : 'scenes'} · {Math.round(seconds)}s
-                      </span>
-                    </div>
-                    {dragSceneId && dropTarget?.storyId === storyId && (
-                      <p className={`text-[11px] ${dropTarget.blocked ? 'text-rose-300' : dropTarget.copy ? 'text-sky-300' : 'text-emerald-300'}`}>
-                        {dropTarget.blocked
-                          ? `Can't drop here: ${dropTarget.blocked}.`
-                          : `Drop to ${dropTarget.copy ? 'copy' : 'move'} the scene here as Scene ${dropTarget.landsAs}.${dropTarget.copy ? '' : ' Hold Alt (Option) to copy instead.'}`}
-                      </p>
-                    )}
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {scenes.map((vid, idx) => (
-                  <div
-                    key={vid.id}
-                    draggable
-                    onDragStart={(e) => startSceneDrag(e, vid.id)}
-                    onDragOver={(e) => sceneDragOver(e, storyId, idx)}
-                    onDrop={sceneDrop}
-                    onDragEnd={endSceneDrag}
-                    title="Drag into any story to move this scene. Hold Alt (Option) to copy it instead"
-                    onClick={() => {
-                      setCurrentVideo(vid);
-                      setCompareMode('video');
-                    }}
-                    className={`p-2 rounded-xl border transition-all cursor-pointer flex flex-col gap-2 group ${
-                      dragSceneId === vid.id ? 'opacity-40 ' : ''
-                    }${dropBar(storyId, idx, vid.id)}${
-                      currentVideo?.id === vid.id
-                        ? 'bg-emerald-950/40 border-emerald-500 shadow-md shadow-emerald-500/10'
-                        : 'bg-slate-950 border-slate-800 hover:border-slate-700'
-                    }`}
-                  >
-                    <div className="relative rounded-lg overflow-hidden bg-slate-900 h-24 flex items-center justify-center">
-                      <video
-                        key={`${vid.id}-${vid.trimStart ?? 0}`}
-                        src={vid.videoUrl}
-                        preload="metadata"
-                        onLoadedMetadata={(e) => {
-                          if (vid.trimStart) e.currentTarget.currentTime = vid.trimStart;
-                        }}
-                        className="h-full w-full object-cover group-hover:scale-105 transition-transform"
-                      />
-                      <div className="absolute inset-0 bg-slate-950/20 group-hover:bg-transparent transition-colors" />
-                      <div className="absolute top-1 left-1 px-1.5 py-0.5 rounded bg-slate-950/80 text-[9px] font-mono text-emerald-400">
-                        {vid.aspectRatio}
-                      </div>
-                      {vid.season && (
-                        <div className="absolute top-1 right-1 px-1.5 py-0.5 rounded bg-slate-950/80 text-[9px] text-slate-300">
-                          {vid.season}
-                        </div>
-                      )}
-                      <div className="absolute bottom-1 right-1 text-slate-200">
-                        <Play className="w-3.5 h-3.5 fill-current" />
-                      </div>
-                    </div>
-                    <div className="text-[11px] text-slate-300 font-medium line-clamp-1">{vid.prompt}</div>
-                    <div className="flex items-center justify-between text-[10px] text-slate-500">
-                      <span>{vid.duration}</span>
-                      <span className={vid.cost?.includes('Free') ? 'text-emerald-400 font-semibold' : 'text-amber-400'}>
-                        {vid.cost || 'Free'}
-                      </span>
-                      <span>{vid.timestamp}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-                  </section>
-                );
-              })}
-            </div>
-          )}
         </div>
       </main>
 
