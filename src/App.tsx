@@ -841,6 +841,9 @@ export default function App() {
   const [makingSceneNo, setMakingSceneNo] = useState(1);
   const [genStartedAt, setGenStartedAt] = useState(0);
   const [genNow, setGenNow] = useState(0);
+  /** A short note after a picture was pasted or dropped (or why it could not be). */
+  const [pictureNote, setPictureNote] = useState<string | null>(null);
+  const [pictureDropHover, setPictureDropHover] = useState(false);
   /** "Save this character": the frame it was opened on and the scene it came from. */
   const [castModal, setCastModal] = useState<{ frame: string; scene: GeneratedVideo } | null>(null);
   /** Story being renamed on the Stories page, and the text typed so far. */
@@ -1704,25 +1707,46 @@ export default function App() {
   };
 
   // Custom image upload
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+  /** Use a picture file (chosen, pasted or dropped) as the start picture. */
+  const loadStartPicture = (file: Blob, how: 'chosen' | 'pasted' | 'dropped') => {
     if (!file.type.startsWith('image/')) {
-      setErrorMessage('Please select a valid image file (JPEG, PNG, WebP).');
+      setErrorMessage('That is not a picture. Use a JPEG, PNG or WebP image.');
       return;
     }
-
     setImageMimeType(file.type);
     setIsDefaultImage(false);
-
+    // With a story open, a new picture means the next scene starts from it.
+    setNextStartsFrom('picture');
     const reader = new FileReader();
     reader.onload = (event) => {
-      const result = event.target?.result as string;
-      setSelectedImage(result);
+      setSelectedImage(event.target?.result as string);
       setErrorMessage(null);
+      setPictureNote(how === 'chosen' ? null : `Picture ${how} as the start picture.`);
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) loadStartPicture(file, 'chosen');
+    e.target.value = '';
+  };
+
+  /** "Paste picture" button: read a picture from the clipboard (the browser may ask for permission). */
+  const handlePasteButton = async () => {
+    try {
+      const items = await navigator.clipboard.read();
+      for (const item of items) {
+        const type = item.types.find((t) => t.startsWith('image/'));
+        if (type) {
+          loadStartPicture(await item.getType(type), 'pasted');
+          return;
+        }
+      }
+      setPictureNote('There is no picture on the clipboard. Copy a picture first, then paste.');
+    } catch {
+      setPictureNote('The browser did not allow reading the clipboard. Click here and press Cmd+V (Ctrl+V on Windows) instead.');
+    }
   };
 
   // Reset to default rabbit
@@ -2892,6 +2916,22 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openStoryKey]);
 
+  // Paste a picture anywhere on the scene screen (Cmd/Ctrl+V) to use it as the start picture.
+  // Not while a window (dialog) is open or on the Stories page; text pastes are left alone.
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      if (view !== 'make' || document.querySelector('[aria-modal="true"]')) return;
+      const item = [...(e.clipboardData?.items || [])].find((it) => it.kind === 'file' && it.type.startsWith('image/'));
+      const file = item?.getAsFile();
+      if (!file) return;
+      e.preventDefault();
+      loadStartPicture(file, 'pasted');
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view]);
+
   // The "38 s so far" clock while a scene is being made.
   useEffect(() => {
     if (!isGenerating && !isExtending) return;
@@ -3578,15 +3618,35 @@ export default function App() {
                 <span className="w-6 h-6 rounded-full bg-emerald-400 text-slate-950 text-xs font-bold flex items-center justify-center">1</span>
                 <h2 className="text-base font-semibold text-white">Who and where</h2>
               </div>
-              <div className="flex gap-3.5 items-center bg-slate-950 border border-slate-800 rounded-xl p-3">
+              <div
+                className={`flex gap-3.5 items-center bg-slate-950 border rounded-xl p-3 ${pictureDropHover ? 'border-emerald-400 bg-emerald-950/40' : 'border-slate-800'}`}
+                onDragOver={(e) => {
+                  if (!e.dataTransfer.types.includes('Files')) return;
+                  e.preventDefault();
+                  setPictureDropHover(true);
+                }}
+                onDragLeave={() => setPictureDropHover(false)}
+                onDrop={(e) => {
+                  const file = e.dataTransfer.files?.[0];
+                  setPictureDropHover(false);
+                  if (!file) return;
+                  e.preventDefault();
+                  loadStartPicture(file, 'dropped');
+                }}
+              >
                 <img src={selectedImage} alt="Start picture" className="w-20 h-24 rounded-lg object-cover shrink-0" />
                 <div className="flex-1 min-w-0 flex flex-col gap-1.5">
                   <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Start picture</span>
                   <span className="text-sm text-slate-200 truncate">{isDefaultImage ? 'Khalle in a spring meadow' : 'Your own picture'}</span>
+                  <span className="text-xs text-slate-400">Or press Cmd+V / Ctrl+V to paste one, or drop a picture here.</span>
+                  {pictureNote && <span role="status" className="text-xs text-emerald-300">{pictureNote}</span>}
                   <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept="image/jpeg,image/png,image/webp" className="hidden" />
                   <div className="flex flex-wrap gap-2 mt-0.5">
                     <button type="button" onClick={() => fileInputRef.current?.click()} className="min-h-[36px] px-3 rounded-lg border border-slate-700 text-sm text-slate-200 hover:border-emerald-500 cursor-pointer flex items-center gap-1.5">
                       <Upload className="w-3.5 h-3.5 text-slate-400" /> Change picture
+                    </button>
+                    <button type="button" onClick={handlePasteButton} className="min-h-[36px] px-3 rounded-lg border border-slate-700 text-sm text-slate-200 hover:border-emerald-500 cursor-pointer">
+                      Paste picture
                     </button>
                     {!isDefaultImage && (
                       <button type="button" onClick={handleResetToRabbit} className="min-h-[36px] px-3 rounded-lg text-sm text-slate-400 hover:text-emerald-300 cursor-pointer">
