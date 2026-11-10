@@ -505,6 +505,16 @@ export interface QuickCorrectionSuggestion {
   category: 'motion' | 'lighting' | 'character' | 'environment';
 }
 
+/** "What is wrong?" in the Change-a-scene window: each adds a clear instruction to the new version. */
+export const SCENE_PROBLEMS: { id: string; label: string; instruction: string }[] = [
+  { id: 'extra-character', label: 'An extra character appears', instruction: 'Show only the characters in the start frame and the scene text. Remove every other character, also small, distant or in the background.' },
+  { id: 'khalle-wrong', label: 'Khalle looks wrong', instruction: 'The green plush rabbit must look exactly like the reference pictures: apple-green fleece, tall upright ears, one white buck tooth, pink snout, pink scarf and red boots.' },
+  { id: 'season-wrong', label: 'Wrong season or weather', instruction: 'Show the chosen season and weather clearly in the whole shot.' },
+  { id: 'camera-too-much', label: 'Camera moves too much', instruction: 'Keep the camera steady; only slow, gentle camera moves.' },
+  { id: 'too-fast', label: 'Movement too fast', instruction: 'Make every movement slower and calmer.' },
+  { id: 'cut-jumps', label: 'The cut to the next scene jumps', instruction: 'End in a calm pose close to how the scene started, so the next scene can follow smoothly.' },
+];
+
 export const QUICK_CORRECTION_SUGGESTIONS: QuickCorrectionSuggestion[] = [
   {
     id: 'higher-jump',
@@ -743,6 +753,10 @@ export default function App() {
   const [correctionWeather, setCorrectionWeather] = useState<string>('sunny');
   const [correctionMode, setCorrectionMode] = useState<'replace' | 'duplicate'>('replace');
   const [correctionSeconds, setCorrectionSeconds] = useState<number>(5);
+  /** Problems picked in "What is wrong?" (ids from SCENE_PROBLEMS). */
+  const [correctionProblems, setCorrectionProblems] = useState<string[]>([]);
+  /** Khalle in this new version only; starts from the main switch. */
+  const [correctionIncludeKhalle, setCorrectionIncludeKhalle] = useState(true);
   const [isCorrecting, setIsCorrecting] = useState<boolean>(false);
 
   // AI Cinematographer & Director state
@@ -2285,6 +2299,8 @@ export default function App() {
     setCorrectionSeconds(Math.min(correctionMaxSeconds(scene), Math.max(3, parseInt(String(scene.duration || '5'), 10) || 5)));
     setCorrectionPrompt(scene.prompt);
     setCorrectionFeedback('');
+    setCorrectionProblems([]);
+    setCorrectionIncludeKhalle(includeKhalle);
     setCorrectionSeason(scene.season || selectedSeason);
     setCorrectionWeather(scene.weather || selectedWeather);
     setCorrectionMode('replace');
@@ -2336,8 +2352,12 @@ export default function App() {
     setProgressStep(`Synthesizing corrected Scene ${sceneToCorrect.sceneNumber || 1}...`);
 
     let finalCorrectedPrompt = correctionPrompt.trim();
-    if (correctionFeedback.trim()) {
-      finalCorrectedPrompt = `${finalCorrectedPrompt} [Correction: ${correctionFeedback.trim()}]`;
+    const fixes = [
+      ...SCENE_PROBLEMS.filter((p) => correctionProblems.includes(p.id)).map((p) => p.instruction),
+      correctionFeedback.trim(),
+    ].filter(Boolean);
+    if (fixes.length) {
+      finalCorrectedPrompt = `${finalCorrectedPrompt} [Correction: ${fixes.join(' ')}]`;
     }
 
     const isRootScene = correctionIsRoot(sceneToCorrect);
@@ -2378,7 +2398,7 @@ export default function App() {
           propDirectives: propItems.map((p) => ({ title: p.title, directive: p.promptDirective || p.directive || '' })),
           characterDirectives: characterItems.map((ch) => ({ title: ch.title, directive: ch.promptDirective || ch.directive || '' })),
           customEmblemType: activeEmblem?.type,
-          includeKhalle,
+          includeKhalle: correctionIncludeKhalle,
           customEmblemDirective: activeEmblem?.directive,
           customEmblemName: activeEmblem?.name,
           customEmblemImage: activeEmblem?.imageBase64 || activeEmblem?.imagePath,
@@ -2441,7 +2461,7 @@ export default function App() {
             propDirectives: propItems.map((p) => ({ title: p.title, directive: p.promptDirective || p.directive || '' })),
             characterDirectives: characterItems.map((ch) => ({ title: ch.title, directive: ch.promptDirective || ch.directive || '' })),
             customEmblemType: activeEmblem?.type,
-            includeKhalle,
+            includeKhalle: correctionIncludeKhalle,
             customEmblemDirective: activeEmblem?.directive,
             customEmblemName: activeEmblem?.name,
             customEmblemImage: activeEmblem?.imageBase64 || activeEmblem?.imagePath,
@@ -4931,133 +4951,172 @@ export default function App() {
         </div>
       </main>
 
-      {/* Scene Correction & Re-take Modal */}
-      <AnimatePresence>
-        {showCorrectionModal && sceneToCorrect && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm">
+      {/* Change a scene (mockup screen 5) */}
+        {showCorrectionModal && sceneToCorrect && (() => {
+          const sceneNo = sceneToCorrect.sceneNumber || 1;
+          const storyNow = videoHistory
+            .filter((v) => v.storyId === sceneToCorrect.storyId)
+            .sort((x, y) => (x.sceneNumber || 1) - (y.sceneNumber || 1));
+          const at = storyNow.findIndex((v) => v.id === sceneToCorrect.id);
+          const nextScene = at !== -1 ? storyNow[at + 1] : undefined;
+          const max = correctionMaxSeconds(sceneToCorrect);
+          const shown = Math.min(max, correctionSeconds);
+          const root = correctionIsRoot(sceneToCorrect);
+          const cost = (shown * estimatedCost.ratePerSec).toFixed(2);
+          const toggleProblem = (id: string) =>
+            setCorrectionProblems((list) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]));
+          return (
+          <div key="change-scene" className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/85 backdrop-blur-sm">
             <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="change-scene-title"
+              initial={{ opacity: 0, scale: 0.97, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              className="bg-slate-900 border border-amber-500/30 rounded-2xl max-w-2xl w-full p-5 sm:p-6 shadow-2xl relative flex flex-col gap-4 max-h-[92vh] overflow-y-auto"
+              className="bg-slate-900 border border-slate-700 rounded-2xl max-w-5xl w-full shadow-2xl flex flex-col max-h-[94vh]"
             >
-              {/* Header */}
-              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                <div className="flex items-center gap-2.5">
-                  <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400">
-                    <Wrench className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-bold text-base text-white">
-                        Correct Scene {sceneToCorrect.sceneNumber || 1}
-                      </h3>
-                      <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
-                        {sceneToCorrect.duration} • {sceneToCorrect.aspectRatio}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-400">
-                      Re-take this scene with custom directing feedback, motion fixes, or seasonal changes.
-                    </p>
-                  </div>
+              <div className="px-5 sm:px-6 py-4 border-b border-slate-800 flex items-start justify-between gap-4">
+                <div>
+                  <h3 id="change-scene-title" className="font-semibold text-lg text-white">Change Scene {sceneNo}</h3>
+                  <p className="text-sm text-slate-400 mt-0.5">Gemini makes a new version of the scene. The old one stays until you choose what to keep.</p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowEmblemModal(true)}
-                    className="px-2 py-1 bg-slate-950 border border-slate-800 hover:border-cyan-500/50 text-[11px] text-slate-300 rounded-lg flex items-center gap-1 cursor-pointer"
-                    title="Configure Belly Emblem / Symbol Studio"
-                  >
-                    <Compass className="w-3 h-3 text-cyan-400" />
-                    <span className="hidden sm:inline">Symbol:</span>
-                    <span className="font-semibold text-cyan-400 truncate max-w-[80px]">
-                      {activeEmblem.name}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowWatermarkModal(true)}
-                    className="px-2 py-1 bg-slate-950 border border-slate-800 hover:border-emerald-500/50 text-[11px] text-slate-300 rounded-lg flex items-center gap-1 cursor-pointer"
-                    title="Configure logo watermark for this take (Gear icon)"
-                  >
-                    <Settings className="w-3 h-3 text-emerald-400" />
-                    <span className="hidden sm:inline">Logo:</span>
-                    <span className={`font-semibold ${watermarkConfig.enabled ? 'text-emerald-400' : 'text-slate-500'}`}>
-                      {watermarkConfig.enabled ? 'ON' : 'OFF'}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowCorrectionModal(false)}
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                </div>
+                <button type="button" onClick={() => setShowCorrectionModal(false)} aria-label="Close" className="min-w-[44px] min-h-[44px] rounded-lg border border-slate-700 text-slate-300 hover:text-white flex items-center justify-center cursor-pointer">
+                  <X className="w-5 h-5" />
+                </button>
               </div>
 
-              {/* Current Scene Context Card */}
-              <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 flex items-start gap-3">
-                <div className="relative w-20 h-16 rounded-lg overflow-hidden bg-slate-900 shrink-0 border border-slate-800">
+              <div className="px-5 sm:px-6 py-5 overflow-y-auto flex flex-wrap gap-6 items-start">
+                <div className="flex-[0_1_240px] min-w-[200px] flex flex-col gap-2.5">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">The scene now</span>
                   <video
                     src={sceneToCorrect.videoUrl}
+                    controls
+                    playsInline
                     preload="metadata"
                     onLoadedMetadata={(e) => {
                       if (sceneToCorrect.trimStart) e.currentTarget.currentTime = sceneToCorrect.trimStart;
                     }}
-                    className="w-full h-full object-cover"
+                    className={`w-full rounded-xl bg-black object-contain ${sceneToCorrect.aspectRatio === '16:9' ? 'aspect-video' : 'aspect-[9/16] max-h-[420px]'}`}
                   />
-                  <div className="absolute top-1 left-1 px-1 py-0.2 rounded bg-slate-950/80 text-[8px] font-mono text-emerald-400">
-                    Take
-                  </div>
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-[10px] text-slate-400 uppercase font-semibold flex items-center justify-between">
-                    <span>Current Take Prompt:</span>
-                    <span className="text-amber-400 font-mono text-[9px]">{sceneToCorrect.cost || 'Free'}</span>
-                  </div>
-                  <p className="text-xs text-slate-300 line-clamp-2 mt-0.5 italic">
-                    "{sceneToCorrect.prompt}"
+                  <p className="text-xs text-slate-400">
+                    {root ? 'A first scene: the new version starts from the start picture.' : `Continues Scene ${sceneNo - 1}, so the new version starts where Scene ${sceneNo - 1} ends.`}
                   </p>
                 </div>
-              </div>
 
-              {/* Quick Directional Fixes */}
-              <div>
-                <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5 flex items-center justify-between">
-                  <span>Quick Directing Fixes (Tap to Add)</span>
-                  <span className="text-[10px] text-slate-500 font-normal">One-click adjustments</span>
-                </label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-                  {QUICK_CORRECTION_SUGGESTIONS.map((fix) => (
+                <div className="flex-[1_1_480px] min-w-0 flex flex-col gap-5">
+                  <div className="flex flex-col gap-2">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">What is wrong?</span>
+                    <div className="flex flex-wrap gap-2">
+                      {SCENE_PROBLEMS.map((pr) => (
+                        <button key={pr.id} type="button" aria-pressed={correctionProblems.includes(pr.id)} onClick={() => toggleProblem(pr.id)} className={`min-h-[36px] px-3.5 rounded-full border text-sm font-medium transition-colors cursor-pointer ${correctionProblems.includes(pr.id) ? 'bg-emerald-950/70 border-emerald-400 text-emerald-100' : 'bg-slate-950 border-slate-700 text-slate-300 hover:border-slate-500'}`}>
+                          {pr.label}
+                        </button>
+                      ))}
+                    </div>
+                    {correctionProblems.includes('extra-character') && correctionIncludeKhalle && (
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-amber-100 bg-amber-950/40 border border-amber-700/60 rounded-lg p-2.5">
+                        <span>Is the extra character Khalle? Then leave him out of this version.</span>
+                        <button type="button" onClick={() => setCorrectionIncludeKhalle(false)} className="min-h-[36px] px-3 rounded-lg bg-amber-400 text-slate-950 text-sm font-semibold cursor-pointer">
+                          Leave Khalle out
+                        </button>
+                      </div>
+                    )}
+                    <label htmlFor="change-note" className="text-sm text-slate-400 mt-1">Or say it in your own words</label>
+                    <textarea
+                      id="change-note"
+                      value={correctionFeedback}
+                      onChange={(e) => setCorrectionFeedback(e.target.value)}
+                      rows={2}
+                      placeholder="Example: The green rabbit appears behind him at the end. Only the old rabbit should be there."
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <label htmlFor="change-text" className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">What happens in the scene</label>
+                      <span className="text-xs text-slate-400">Edit if you want the scene itself to change</span>
+                    </div>
+                    <textarea
+                      id="change-text"
+                      value={correctionPrompt}
+                      onChange={(e) => setCorrectionPrompt(e.target.value)}
+                      rows={3}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap gap-5">
+                    <div className="flex-[1_1_240px] flex flex-col gap-2">
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Season and weather</span>
+                      <div className="flex flex-wrap gap-2">
+                        {SEASONS.map((x) => (
+                          <button key={x.id} type="button" aria-pressed={correctionSeason === x.id} onClick={() => setCorrectionSeason(x.id)} className={`min-h-[36px] px-3.5 rounded-full border text-sm font-medium transition-colors cursor-pointer ${correctionSeason === x.id ? 'bg-emerald-950/70 border-emerald-400 text-emerald-100' : 'bg-slate-950 border-slate-700 text-slate-300 hover:border-slate-500'}`}>
+                            {x.name}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {WEATHER_OPTIONS.map((w) => (
+                          <button key={w.id} type="button" aria-pressed={correctionWeather === w.id} onClick={() => setCorrectionWeather(w.id)} className={`min-h-[36px] px-3.5 rounded-full border text-sm font-medium transition-colors cursor-pointer ${correctionWeather === w.id ? 'bg-emerald-950/70 border-emerald-400 text-emerald-100' : 'bg-slate-950 border-slate-700 text-slate-300 hover:border-slate-500'}`}>
+                            {({ sunny: 'Sunny', snowing: 'Snow', rain: 'Rain', sunset: 'Sunset', misty: 'Mist', rainbow: 'Rainbow' } as Record<string, string>)[w.id] || w.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="flex-[1_1_220px] flex flex-col gap-2">
+                      <label htmlFor="correction-length" className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                        <span>Length</span>
+                        <span className="text-sm normal-case tracking-normal text-emerald-300">{shown} s</span>
+                      </label>
+                      <input id="correction-length" type="range" min={3} max={max} step={1} value={shown} onChange={(e) => setCorrectionSeconds(Number(e.target.value))} className="w-full accent-emerald-500 cursor-pointer" />
+                      <p className="text-xs text-slate-400">
+                        3–{max} s{' '}
+                        {root ? '(a new scene from a picture).' : max < 10 ? '(the room left in the 30 s chain).' : "(it continues the scene before, which is Gemini's limit)."}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3 bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm">
                     <button
-                      key={fix.id}
                       type="button"
-                      onClick={() => handleSelectQuickFix(fix)}
-                      className="p-2 rounded-lg bg-slate-950/80 hover:bg-amber-950/30 border border-slate-800 hover:border-amber-500/50 text-slate-300 hover:text-amber-200 transition-all text-left flex items-start gap-1.5 cursor-pointer text-xs"
+                      role="switch"
+                      aria-checked={correctionIncludeKhalle}
+                      aria-label="Khalle in this new version"
+                      onClick={() => setCorrectionIncludeKhalle((v) => !v)}
+                      className={`relative w-11 h-6 rounded-full shrink-0 cursor-pointer ${correctionIncludeKhalle ? 'bg-emerald-500' : 'bg-slate-600'}`}
                     >
-                      <span className="text-base shrink-0">{fix.icon}</span>
-                      <span className="line-clamp-2 text-[11px] font-medium leading-tight">{fix.label}</span>
+                      <span className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${correctionIncludeKhalle ? 'translate-x-5' : ''}`} />
                     </button>
-                  ))}
-                </div>
-              </div>
+                    <span>
+                      <strong className="text-white">{correctionIncludeKhalle ? 'Khalle in this version' : 'Khalle left out'}</strong>{' '}
+                      <span className="text-slate-400">
+                        {correctionIncludeKhalle ? 'His pictures and look are sent.' : 'for this new version only. No Khalle pictures, symbol or green-rabbit rule are sent.'}
+                      </span>
+                    </span>
+                  </div>
 
-              {/* Directing Notes / What to Correct */}
-              <div>
-                <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1 flex items-center justify-between">
-                  <span>What Should Be Corrected? (Directing Notes)</span>
-                  <span className="text-[10px] text-amber-400/90 font-mono">Appended to generation prompt</span>
-                </label>
-                <textarea
-                  value={correctionFeedback}
-                  onChange={(e) => setCorrectionFeedback(e.target.value)}
-                  rows={2}
-                  placeholder="e.g., Make the landing softer on the grass, face forward and wave fuzzy paw at camera, smile bigger..."
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-500 transition-colors"
-                />
-              </div>
-
+                  <details className="bg-slate-950/60 border border-slate-800 rounded-xl">
+                    <summary className="min-h-[44px] px-3.5 flex items-center text-sm font-medium text-slate-200 cursor-pointer">
+                      More options for this version <span className="text-slate-400 font-normal ml-1">· camera, clothes, symbol</span>
+                    </summary>
+                    <div className="p-3.5 pt-1 flex flex-col gap-4">
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Camera</span>
+                        <CinematographyToolbar
+                          currentPrompt={correctionPrompt}
+                          onUpdatePrompt={(newP) => setCorrectionPrompt(newP)}
+                          onOpenDirectorModal={() => {
+                            setDirectorTarget('correction');
+                            setShowDirectorModal(true);
+                          }}
+                          onOpenGlossary={() => setShowGlossaryModal(true)}
+                          season={correctionSeason}
+                          weather={correctionWeather}
+                          isExtension={false}
+                          previousPrompt={sceneToCorrect.prompt}
+                        />
+                      </div>
               {/* AI Stylist: Wardrobe, Clothing & Accessories for this Correction Take */}
               <div className="p-3 bg-purple-950/20 rounded-xl border border-purple-900/40 space-y-2">
                 <div className="flex items-center justify-between flex-wrap gap-2">
@@ -5207,202 +5266,62 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Base Prompt for this scene */}
-              <div>
-                <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1 block">
-                  Base Scene Prompt (Editable)
-                </label>
-                <textarea
-                  value={correctionPrompt}
-                  onChange={(e) => setCorrectionPrompt(e.target.value)}
-                  rows={2}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-slate-300 placeholder-slate-600 focus:outline-none focus:border-amber-500 transition-colors"
-                />
-                <CinematographyToolbar
-                  currentPrompt={correctionPrompt}
-                  onUpdatePrompt={(newP) => setCorrectionPrompt(newP)}
-                  onOpenDirectorModal={() => {
-                    setDirectorTarget('correction');
-                    setShowDirectorModal(true);
-                  }}
-                  onOpenGlossary={() => setShowGlossaryModal(true)}
-                  season={correctionSeason}
-                  weather={correctionWeather}
-                  isExtension={false}
-                  previousPrompt={sceneToCorrect.prompt}
-                />
-              </div>
-
-              {/* Atmosphere / Season & Weather Override for this Scene */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 border-t border-slate-800/80">
-                <div>
-                  <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1 block">
-                    Scene Season
-                  </label>
-                  <div className="grid grid-cols-4 gap-1">
-                    {SEASONS.map((s) => (
-                      <button
-                        key={s.id}
-                        type="button"
-                        onClick={() => setCorrectionSeason(s.id)}
-                        className={`py-1.5 px-1 rounded-lg border text-center transition-all cursor-pointer flex flex-col items-center gap-0.5 ${
-                          correctionSeason === s.id
-                            ? `${s.colorClasses} ${s.activeBorder} font-bold`
-                            : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
-                        }`}
-                      >
-                        <span className="text-sm">{s.icon}</span>
-                        <span className="text-[10px]">{s.name}</span>
+                      <button type="button" onClick={() => setShowEmblemModal(true)} className="self-start min-h-[36px] px-3 rounded-lg border border-slate-700 text-sm text-slate-200 hover:border-emerald-500 cursor-pointer">
+                        Belly symbol: {activeEmblem.type === 'none' ? 'None' : activeEmblem.name} · Change
                       </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1 block">
-                    Scene Weather
-                  </label>
-                  <div className="grid grid-cols-3 gap-1">
-                    {WEATHER_OPTIONS.map((w) => (
-                      <button
-                        key={w.id}
-                        type="button"
-                        onClick={() => setCorrectionWeather(w.id)}
-                        className={`py-1.5 px-1 rounded-lg border text-center transition-all cursor-pointer flex items-center justify-center gap-1 ${
-                          correctionWeather === w.id
-                            ? 'bg-amber-950/60 border-amber-500 text-amber-300 font-semibold'
-                            : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
-                        }`}
-                      >
-                        <span className="text-xs">{w.icon}</span>
-                        <span className="text-[10px] truncate">{w.name.split(' ')[0]}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Length of the new take */}
-              {(() => {
-                const max = correctionMaxSeconds(sceneToCorrect);
-                const shown = Math.min(max, correctionSeconds);
-                const root = correctionIsRoot(sceneToCorrect);
-                return (
-                  <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800 flex flex-col gap-1.5">
-                    <label htmlFor="correction-length" className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-                      <span>Scene length</span>
-                      <span className="font-mono text-sm normal-case tracking-normal text-amber-300">{shown} s</span>
-                    </label>
-                    <input
-                      id="correction-length"
-                      type="range"
-                      min={3}
-                      max={max}
-                      step={1}
-                      value={shown}
-                      onChange={(e) => setCorrectionSeconds(Number(e.target.value))}
-                      className="w-full accent-amber-500 cursor-pointer"
-                    />
-                    <div className="flex justify-between text-[10px] text-slate-500 font-mono">
-                      <span>3 s</span>
-                      <span>
-                        {max} s{' '}
-                        {root
-                          ? '(new scene from a picture)'
-                          : max < 10
-                          ? '(room left in the 30 s chain)'
-                          : "(continues the scene before; Gemini's limit)"}
-                      </span>
                     </div>
-                  </div>
-                );
-              })()}
+                  </details>
 
-              {/* How to Apply: Replace or Save as Alternate */}
-              <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
-                <div>
-                  <span className="font-semibold text-slate-200 block">Correction Target:</span>
-                  <span className="text-[11px] text-slate-400">Choose how this corrected take is saved</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setCorrectionMode('replace')}
-                    className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all cursor-pointer ${
-                      correctionMode === 'replace'
-                        ? 'bg-emerald-950/70 border-emerald-500 text-emerald-300'
-                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    🔄 Replace Scene {sceneToCorrect.sceneNumber || 1} in Movie
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setCorrectionMode('duplicate')}
-                    className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all cursor-pointer ${
-                      correctionMode === 'duplicate'
-                        ? 'bg-emerald-950/70 border-emerald-500 text-emerald-300'
-                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    ➕ Keep Both (Alternate Take)
-                  </button>
+                  <div className="flex flex-col gap-2">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">When it is ready</span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      {([
+                        { id: 'replace', title: `Replace Scene ${sceneNo}`, note: 'The old version is removed.' },
+                        { id: 'duplicate', title: 'Keep both', note: 'The new version goes right after the old one.' },
+                      ] as const).map((o) => (
+                        <label key={o.id} className={`flex gap-2.5 items-start p-3 rounded-xl border cursor-pointer ${correctionMode === o.id ? 'border-emerald-400 bg-emerald-950/50' : 'border-slate-700 hover:border-slate-500'}`}>
+                          <input type="radio" name="keep-version" checked={correctionMode === o.id} onChange={() => setCorrectionMode(o.id)} className="mt-1 accent-emerald-500" />
+                          <span>
+                            <strong className="block text-sm text-white">{o.title}</strong>
+                            <span className="text-xs text-slate-400">{o.note}</span>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                    {nextScene && correctionMode === 'replace' && (
+                      <p className="text-xs text-slate-400">
+                        Scene {nextScene.sceneNumber} was made to follow the old Scene {sceneNo}. After the change you can smooth the cut between them.
+                      </p>
+                    )}
+                  </div>
                 </div>
               </div>
 
-              {/* Footer Actions */}
-              <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-800">
-                {currentStoryScenes.length > 1 ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (confirm(`Remove Scene ${sceneToCorrect.sceneNumber || 1} from your movie sequence?`)) {
-                        handleDeleteScene(sceneToCorrect);
-                      }
-                    }}
-                    className="px-3 py-1.5 text-red-400 hover:text-red-300 hover:bg-red-950/30 border border-transparent hover:border-red-900/50 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>Delete Scene from Sequence</span>
-                  </button>
-                ) : (
-                  <div className="text-[11px] text-slate-500">
-                    Engine: <strong className="text-amber-400">Gemini Omni Flash</strong>
-                  </div>
-                )}
-
-                <div className="flex items-center gap-2 ml-auto">
-                  <button
-                    type="button"
-                    onClick={() => setShowCorrectionModal(false)}
-                    className="px-3 py-1.5 text-slate-400 hover:text-slate-200 text-xs rounded-lg transition-colors cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleApplyCorrection}
-                    disabled={isCorrecting}
-                    className="px-4 py-2 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-400 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-md shadow-amber-500/20 transition-all disabled:opacity-50 cursor-pointer"
-                  >
-                    {isCorrecting ? (
-                      <>
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin text-slate-950" />
-                        <span>Applying Correction ({progressPercent}%)...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Wrench className="w-3.5 h-3.5" />
-                        <span>Re-take & Apply Correction (~$0.35 USD)</span>
-                      </>
-                    )}
-                  </button>
-                </div>
+              <div className="px-5 sm:px-6 py-4 border-t border-slate-800 flex flex-wrap items-center justify-end gap-3">
+                <span className="text-sm text-slate-400 mr-auto">Takes about 1 minute.</span>
+                <button type="button" onClick={() => setShowCorrectionModal(false)} className="min-h-[44px] px-4 rounded-lg border border-slate-700 text-sm text-slate-200 hover:border-slate-500 cursor-pointer">
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleApplyCorrection}
+                  disabled={isCorrecting}
+                  className="min-h-[48px] px-5 rounded-xl bg-emerald-400 hover:bg-emerald-300 text-slate-950 font-bold text-base flex items-center gap-2 disabled:opacity-60 cursor-pointer"
+                >
+                  {isCorrecting ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Making the new Scene {sceneNo}… {progressPercent}%</span>
+                    </>
+                  ) : (
+                    <span>Make new Scene {sceneNo} · {shown} s · ${cost}</span>
+                  )}
+                </button>
               </div>
             </motion.div>
           </div>
-        )}
-      </AnimatePresence>
+          );
+        })()}
 
       {/* Pricing & Spend Cap Breakdown Modal */}
       <AnimatePresence>
