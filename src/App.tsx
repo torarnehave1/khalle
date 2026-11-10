@@ -87,7 +87,8 @@ import { UploadSceneModal } from './components/UploadSceneModal';
 import { useStoryPersistence } from './lib/storyStore';
 import { useTrimmedPlayback } from './lib/trimPlayback';
 import { extensionChainSeconds, MAX_EXTENSION_CHAIN_SECONDS } from './lib/extensionChain';
-import { clipDuration, grabFrame } from './lib/frameGrab';
+import { grabFrame } from './lib/frameGrab';
+import { findExtensionSeam, storyPlayEnd } from './lib/seam';
 import { analyzeCut, type CutAnalysis } from './api/cutAnalysis';
 import { exportStory } from './lib/storyExport';
 import SceneEditBar from './components/SceneEditBar';
@@ -589,15 +590,27 @@ export interface GeneratedVideo {
   /** Edit list: play only this part of the clip (seconds). The clip file itself is never cut. */
   trimStart?: number;
   trimEnd?: number;
+  /**
+   * Extension only: where its own new part begins in the clip, found from the frames (src/lib/seam.ts).
+   * The scene it continues stops here when the two play in a row (storyPlayEnd).
+   */
+  seamStart?: number;
+  /** Set once the seam has been looked for (replaces the old length-only trim). */
+  seamChecked?: boolean;
 }
 
 /**
  * Seconds a scene plays: its trimmed part of the clip. The clip's end is its measured length when
  * known (an extension's file holds the whole chain), else the scene's duration label.
  */
-function scenePlaySeconds(scene: GeneratedVideo): number {
+function scenePlaySeconds(scene: GeneratedVideo, next?: GeneratedVideo): number {
   const full = scene.clipSeconds ?? (parseInt(scene.duration || '', 10) || 5);
-  return Math.max(0, (scene.trimEnd ?? full) - (scene.trimStart ?? 0));
+  return Math.max(0, (storyPlayEnd(scene, next) ?? full) - (scene.trimStart ?? 0));
+}
+
+/** Seconds a story plays: each scene stops where the next one (its extension) takes over. */
+function storyPlaySeconds(scenes: GeneratedVideo[]): number {
+  return scenes.reduce((sum, scene, i) => sum + scenePlaySeconds(scene, scenes[i + 1]), 0);
 }
 
 export default function App() {
@@ -651,30 +664,38 @@ export default function App() {
   videoHistoryRef.current = videoHistory;
 
   // Gemini returns an extended scene as the whole chain (scene 1 + 2 + … + the new part), so
-  // without this a story replays its earlier scenes. For every extension not yet checked, read
-  // the clip length and start playback where the new part begins (the file itself is kept).
-  // Scenes the user trimmed or split are left alone; resetting a trim later is respected.
+  // without this a story replays its earlier scenes. For every extension not yet checked, find
+  // where its new part begins (src/lib/seam.ts: 4 frames before chain − own length, refined from the
+  // picture) and start playback there (the file itself is kept). Scenes the user trimmed or split are
+  // left alone. Scenes trimmed by the older length-only rule (trimStart = clip − own) are fixed once.
   const extensionTrimInFlight = useRef<Set<string>>(new Set());
   useEffect(() => {
     for (const scene of videoHistory) {
-      if (
-        !scene.previousInteractionId ||
-        scene.extensionTrimChecked ||
-        scene.trimStart !== undefined ||
-        scene.trimEnd !== undefined ||
-        !scene.videoUrl ||
-        extensionTrimInFlight.current.has(scene.id)
-      ) {
+      if (!scene.previousInteractionId || scene.seamChecked || !scene.videoUrl || extensionTrimInFlight.current.has(scene.id)) {
         continue;
       }
-      extensionTrimInFlight.current.add(scene.id);
       const ownSeconds = parseInt(String(scene.duration || '0'), 10) || 0;
-      clipDuration(scene.videoUrl)
-        .then((total) => {
-          const startAt = Number.isFinite(total) && ownSeconds > 0 && total > ownSeconds + 0.5 ? total - ownSeconds : undefined;
+      const untouched = scene.trimStart === undefined && scene.trimEnd === undefined && !scene.extensionTrimChecked;
+      const oldAutoTrim =
+        !!scene.extensionTrimChecked &&
+        scene.trimEnd === undefined &&
+        (scene.trimStart === undefined ||
+          (scene.clipSeconds !== undefined && Math.abs(scene.trimStart - (scene.clipSeconds - ownSeconds)) < 0.02));
+      if (!untouched && !oldAutoTrim) continue;
+      const autoStart = scene.trimStart;
+      extensionTrimInFlight.current.add(scene.id);
+      findExtensionSeam(scene.videoUrl, ownSeconds)
+        .then(({ clipSeconds, seamStart }) => {
           const patch = (v: GeneratedVideo): GeneratedVideo =>
-            v.id === scene.id && v.trimStart === undefined && v.trimEnd === undefined
-              ? { ...v, trimStart: startAt, extensionTrimChecked: true, clipSeconds: Number.isFinite(total) ? total : undefined }
+            v.id === scene.id && v.trimEnd === undefined && v.trimStart === autoStart && !v.seamChecked
+              ? {
+                  ...v,
+                  trimStart: seamStart,
+                  seamStart,
+                  seamChecked: true,
+                  extensionTrimChecked: true,
+                  clipSeconds: Number.isFinite(clipSeconds) ? clipSeconds : undefined,
+                }
               : v;
           setVideoHistory((prev) => prev.map(patch));
           setCurrentVideo((cur) => (cur ? patch(cur) : cur));
@@ -736,7 +757,21 @@ export default function App() {
   const [particles, setParticles] = useState<{ id: number; x: number; y: number; char: string }[]>([]);
 
   // Refs
-  const videoRef = useRef<HTMLVideoElement>(null);
+  // The main player is two <video> elements (slots). The visible one is `videoRef`; in story play
+  // the hidden one holds the next scene, loaded and seeked to its first frame, so the cut is a swap
+  // with no load in between (see handOffToNextScene).
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const slotEls = useRef<(HTMLVideoElement | null)[]>([null, null]);
+  const [activeSlot, setActiveSlot] = useState<0 | 1>(0);
+  const activeSlotRef = useRef<0 | 1>(0);
+  const slotRefCallbacks = useMemo(
+    () =>
+      ([0, 1] as const).map((slot) => (el: HTMLVideoElement | null) => {
+        slotEls.current[slot] = el;
+        if (slot === activeSlotRef.current) videoRef.current = el;
+      }),
+    []
+  );
   const splitVideoRef = useRef<HTMLVideoElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -1423,7 +1458,7 @@ export default function App() {
   }, [currentVideo, videoHistory]);
 
   const totalStorySeconds = useMemo(
-    () => currentStoryScenes.reduce((sum, scene) => sum + scenePlaySeconds(scene), 0),
+    () => storyPlaySeconds(currentStoryScenes),
     [currentStoryScenes]
   );
 
@@ -2178,7 +2213,11 @@ export default function App() {
     setStoryExport({ step: 'Starting…', fraction: 0 });
     try {
       const blob = await exportStory(
-        currentStoryScenes.map((s) => ({ videoUrl: s.videoUrl, trimStart: s.trimStart, trimEnd: s.trimEnd })),
+        currentStoryScenes.map((s, i) => ({
+          videoUrl: s.videoUrl,
+          trimStart: s.trimStart,
+          trimEnd: storyPlayEnd(s, currentStoryScenes[i + 1]),
+        })),
         currentStoryScenes[0].aspectRatio,
         (p) => setStoryExport(p)
       );
@@ -2418,6 +2457,8 @@ export default function App() {
         trimEnd: undefined,
         clipSeconds: undefined,
         extensionTrimChecked: undefined,
+        seamStart: undefined,
+        seamChecked: undefined,
         season: correctionSeason,
         weather: correctionWeather,
         cost: estimatedCost.display,
@@ -2509,12 +2550,78 @@ export default function App() {
     setIsPlaying(true);
   };
 
+  // Story play: the scene that comes next (the first one again when the story loops).
+  const nextStoryScene = useMemo(() => {
+    if (!currentVideo || !playAllContinuous || currentStoryScenes.length < 2) return undefined;
+    const idx = currentStoryScenes.findIndex((s) => s.id === currentVideo.id);
+    if (idx === -1) return undefined;
+    if (idx < currentStoryScenes.length - 1) return currentStoryScenes[idx + 1];
+    return isLooping ? currentStoryScenes[0] : undefined;
+  }, [currentVideo, currentStoryScenes, playAllContinuous, isLooping]);
+
+  // Where the selected scene stops. In story play a scene stops where its extension takes over
+  // (the seam), not at its own end: the chain replaced its last frames.
+  const playEnd = currentVideo
+    ? playAllContinuous
+      ? storyPlayEnd(currentVideo, nextStoryScene)
+      : currentVideo.trimEnd
+    : undefined;
+
+  // The hidden slot loads the next scene and waits on its first frame, muted and paused.
+  const preloadScene = compareMode === 'video' ? nextStoryScene : undefined;
+  useEffect(() => {
+    const el = slotEls.current[activeSlot === 0 ? 1 : 0];
+    if (!el) return;
+    el.pause();
+    el.muted = true;
+    if (!preloadScene) return;
+    const start = preloadScene.trimStart ?? 0;
+    const seek = () => {
+      if (Math.abs(el.currentTime - start) > 0.02) el.currentTime = start;
+    };
+    if (el.readyState >= 1) seek();
+    el.addEventListener('loadedmetadata', seek);
+    return () => el.removeEventListener('loadedmetadata', seek);
+  }, [activeSlot, preloadScene?.id, preloadScene?.videoUrl, preloadScene?.trimStart, compareMode]);
+
+  // Swap to the hidden slot when it already holds `next` on its first frame. False = not ready:
+  // the caller falls back to loading the next scene in the visible player.
+  const handOffToNextScene = (player: HTMLVideoElement | null, next: GeneratedVideo): boolean => {
+    if (compareMode !== 'video') return false;
+    const fromSlot = activeSlotRef.current;
+    const toSlot: 0 | 1 = fromSlot === 0 ? 1 : 0;
+    const from = slotEls.current[fromSlot];
+    const to = slotEls.current[toSlot];
+    if (!from || !to || player !== from) return false;
+    if (to.getAttribute('src') !== next.videoUrl || to.readyState < 2) return false;
+    const start = next.trimStart ?? 0;
+    if (Math.abs(to.currentTime - start) > 0.1) return false;
+    to.muted = from.muted;
+    to.volume = from.volume;
+    to.playbackRate = from.playbackRate;
+    activeSlotRef.current = toSlot;
+    videoRef.current = to;
+    // Show the new slot now, not after React's next render (~100 ms in this big component, during
+    // which the old frame would freeze). The render sets the same classes again.
+    const shownClass = from.className;
+    from.className = to.className;
+    to.className = shownClass;
+    to.removeAttribute('aria-hidden');
+    from.setAttribute('aria-hidden', 'true');
+    to.play().catch(() => {});
+    from.pause();
+    setActiveSlot(toSlot);
+    return true;
+  };
+
   // What happens when the selected scene's segment ends (natural end, or its trimEnd).
   const advanceAfterScene = (player: HTMLVideoElement | null, trimmedEnd: boolean) => {
     if (!currentVideo) return;
     if (playAllContinuous && currentStoryScenes.length > 1) {
       const idx = currentStoryScenes.findIndex((s) => s.id === currentVideo.id);
-      if (idx !== -1 && idx < currentStoryScenes.length - 1) {
+      if (nextStoryScene && handOffToNextScene(player, nextStoryScene)) {
+        setCurrentVideo(nextStoryScene);
+      } else if (idx !== -1 && idx < currentStoryScenes.length - 1) {
         setCurrentVideo(currentStoryScenes[idx + 1]);
       } else if (isLooping) {
         if (currentStoryScenes[0].id === currentVideo.id && player) {
@@ -2536,10 +2643,10 @@ export default function App() {
     }
   };
 
-  useTrimmedPlayback(videoRef, currentVideo?.videoUrl, currentVideo?.trimStart, currentVideo?.trimEnd, () =>
+  useTrimmedPlayback(videoRef, currentVideo?.videoUrl, currentVideo?.trimStart, playEnd, () =>
     advanceAfterScene(videoRef.current, true)
   );
-  useTrimmedPlayback(splitVideoRef, currentVideo?.videoUrl, currentVideo?.trimStart, currentVideo?.trimEnd, () =>
+  useTrimmedPlayback(splitVideoRef, currentVideo?.videoUrl, currentVideo?.trimStart, playEnd, () =>
     advanceAfterScene(splitVideoRef.current, true)
   );
 
@@ -4162,17 +4269,29 @@ export default function App() {
                 <div className="w-full h-full flex items-center justify-center relative">
                   {compareMode === 'video' && (
                     <div className="relative max-h-[540px] max-w-full flex items-center justify-center">
-                      <video
-                        ref={videoRef}
-                        src={currentVideo.videoUrl}
-                        autoPlay
-                        loop={isLooping && !playAllContinuous && currentVideo.trimEnd === undefined}
-                        playsInline
-                        className="max-h-[540px] max-w-full object-contain rounded-lg shadow-2xl"
-                        onPlay={() => setIsPlaying(true)}
-                        onPause={() => setIsPlaying(false)}
-                        onEnded={() => advanceAfterScene(videoRef.current, false)}
-                      />
+                      {([0, 1] as const).map((slot) => {
+                        const isActive = slot === activeSlot;
+                        return (
+                          <video
+                            key={slot}
+                            ref={slotRefCallbacks[slot]}
+                            src={isActive ? currentVideo.videoUrl : preloadScene?.videoUrl}
+                            autoPlay={isActive}
+                            preload="auto"
+                            loop={isActive && isLooping && !playAllContinuous && playEnd === undefined}
+                            playsInline
+                            aria-hidden={!isActive}
+                            className={
+                              isActive
+                                ? 'max-h-[540px] max-w-full object-contain rounded-lg shadow-2xl'
+                                : 'absolute inset-0 w-full h-full object-contain rounded-lg opacity-0 pointer-events-none'
+                            }
+                            onPlay={(e) => e.currentTarget === videoRef.current && setIsPlaying(true)}
+                            onPause={(e) => e.currentTarget === videoRef.current && setIsPlaying(false)}
+                            onEnded={(e) => e.currentTarget === videoRef.current && advanceAfterScene(e.currentTarget, false)}
+                          />
+                        );
+                      })}
                       <VideoWatermarkOverlay config={watermarkConfig} />
                     </div>
                   )}
@@ -4204,7 +4323,7 @@ export default function App() {
                             ref={splitVideoRef}
                             src={currentVideo.videoUrl}
                             autoPlay
-                            loop={isLooping && !playAllContinuous && currentVideo.trimEnd === undefined}
+                            loop={isLooping && !playAllContinuous && playEnd === undefined}
                             playsInline
                             className="max-h-[460px] object-contain rounded-lg border border-emerald-500/40"
                             onEnded={() => advanceAfterScene(splitVideoRef.current, false)}
@@ -5122,7 +5241,7 @@ export default function App() {
               )}
               {stories.map(({ storyId, scenes }) => {
                 const isOpen = !!currentVideo && (currentVideo.storyId || currentVideo.id) === storyId;
-                const seconds = scenes.reduce((sum, sc) => sum + scenePlaySeconds(sc), 0);
+                const seconds = storyPlaySeconds(scenes);
                 return (
                   <section
                     key={storyId}

@@ -97,8 +97,11 @@ export async function exportStory(
         onProgress({ step: `Cutting scene ${i + 1} of ${scenes.length}…`, fraction: base + span * Math.min(1, Math.max(0, progress)) });
       ffmpeg.on('progress', onProg);
 
-      const lengthArgs = knownLength ? ['-t', length.toFixed(3)] : [];
-      const args = ['-ss', start.toFixed(3), ...lengthArgs, '-i', src];
+      // Cut times sit on frame starts (e.g. a seam at frame 236 = 9.8333 s). Seek 5 ms early, so
+      // rounding never drops the first frame or keeps the frame after the end.
+      const seekAt = Math.max(0, start - 0.005);
+      const lengthArgs = knownLength ? ['-t', (start + length - 0.005 - seekAt).toFixed(4)] : [];
+      const args = ['-ss', seekAt.toFixed(4), ...lengthArgs, '-i', src];
       if (!info.hasAudio) args.push('-f', 'lavfi', ...lengthArgs, '-i', 'anullsrc=r=48000:cl=stereo');
       args.push(
         '-vf', `scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30`,
@@ -106,7 +109,7 @@ export async function exportStory(
         '-map', info.hasAudio ? '0:a:0' : '1:a:0',
         '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '20', '-pix_fmt', 'yuv420p',
         '-c:a', 'aac', '-b:a', '160k', '-ar', '48000', '-ac', '2',
-        ...(knownLength ? ['-t', length.toFixed(3)] : ['-shortest']),
+        ...(knownLength ? lengthArgs : ['-shortest']),
         out
       );
       let code: number;
