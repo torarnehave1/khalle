@@ -798,6 +798,12 @@ export default function App() {
   const [includeKhalle, setIncludeKhalle] = useState(true);
   /** The "More options" panel in step 2 (camera, ideas, clothes, format, sound, Khalle's pictures). */
   const [showMoreOptions, setShowMoreOptions] = useState(false);
+  /** With a story open, the next scene from the left panel continues the last scene ('end') or starts from a picture. */
+  const [nextStartsFrom, setNextStartsFrom] = useState<'end' | 'picture'>('end');
+  /** Set just before a Generate from a picture that should join the open story instead of starting a new one. */
+  const appendToStoryRef = useRef<string | null>(null);
+  /** The "+ Before" / "+ After" choice on a scene card: make it with AI or upload a clip. */
+  const [addMenu, setAddMenu] = useState<{ sceneId: string; side: 'before' | 'after' } | null>(null);
   const [showStylistModal, setShowStylistModal] = useState<boolean>(false);
   const [showTraitsTooltip, setShowTraitsTooltip] = useState<boolean>(false);
 
@@ -1450,7 +1456,7 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const currentStoryScenes = useMemo(() => {
+  const currentStoryScenesRaw = useMemo(() => {
     if (!currentVideo) return [];
     const scenes = videoHistory
       .filter((v) => v.storyId === currentVideo.storyId)
@@ -1460,6 +1466,14 @@ export default function App() {
     }
     return scenes;
   }, [currentVideo, videoHistory]);
+  const currentStoryScenes = currentStoryScenesRaw;
+  /** The last scene of the open story, when a saved story is open (the left panel then makes the next scene). */
+  const openStoryLastScene =
+    currentVideo && videoHistory.some((v) => v.id === currentVideo.id)
+      ? currentStoryScenes[currentStoryScenes.length - 1]
+      : undefined;
+  const nextSceneNumber = openStoryLastScene ? currentStoryScenes.length + 1 : 1;
+  const continuesLastScene = !!openStoryLastScene && nextStartsFrom === 'end';
 
   const totalStorySeconds = useMemo(
     () => storyPlaySeconds(currentStoryScenes),
@@ -1816,8 +1830,22 @@ export default function App() {
       };
 
       setSessionCost((prev) => prev + estimatedCost.amount);
-      setCurrentVideo(newVideo);
-      setVideoHistory((prev) => [newVideo, ...prev]);
+      // From the left panel with a story open: the new scene goes last in that story.
+      const joinStory = appendToStoryRef.current;
+      appendToStoryRef.current = null;
+      const joinLast = joinStory
+        ? videoHistoryRef.current
+            .filter((v) => v.storyId === joinStory)
+            .sort((a, b) => (a.sceneNumber || 1) - (b.sceneNumber || 1))
+            .pop()
+        : undefined;
+      const joined = joinLast ? replaceInStory(joinLast.id, [joinLast, { ...newVideo, storyId: joinStory! }]) : undefined;
+      if (joined) {
+        setCurrentVideo(joined.find((v) => v.id === newVideo.id) || newVideo);
+      } else {
+        setCurrentVideo(newVideo);
+        setVideoHistory((prev) => [newVideo, ...prev]);
+      }
       setCompareMode('video');
 
       // Seamless Auto-Chaining for 20s (2 scenes) and 30s (3 scenes)
@@ -1990,7 +2018,11 @@ export default function App() {
   };
 
   // Extend scene continuation handler (Multi-Scene Sequencing)
-  const handleExtendScene = async (parentVideo: GeneratedVideo, overridePrompt?: string) => {
+  const handleExtendScene = async (
+    parentVideo: GeneratedVideo,
+    overridePrompt?: string,
+    opts?: { seconds?: number; season?: string; weather?: string }
+  ) => {
     setIsExtending(true);
     setErrorMessage(null);
     const nextSceneNumber = (parentVideo.sceneNumber || 1) + 1;
@@ -2010,7 +2042,7 @@ export default function App() {
       // Past that it fails with INVALID_ARGUMENT, so a longer story starts a fresh generation from the
       // last frame instead. The chain is followed back through previousInteractionId.
       const chainSeconds = extensionChainSeconds(parentVideo, videoHistoryRef.current);
-      const wantedSeconds = Math.max(3, Math.round(newSceneSeconds));
+      const wantedSeconds = Math.max(3, Math.round(opts?.seconds ?? newSceneSeconds));
       const continueInteraction =
         !!parentVideo.interactionId &&
         parentVideo.trimEnd === undefined &&
@@ -2092,8 +2124,8 @@ export default function App() {
           aspectRatio: parentVideo.aspectRatio,
           duration: `${sceneSeconds}s`,
           resolution,
-          season: parentVideo.season || selectedSeason,
-          weather: parentVideo.weather || selectedWeather,
+          season: opts?.season || parentVideo.season || selectedSeason,
+          weather: opts?.weather || parentVideo.weather || selectedWeather,
           audioMode,
           clothingDirective: combinedClothingDirective || undefined,
           shootGuideDirective: combinedPropDirective || undefined,
@@ -2152,8 +2184,8 @@ export default function App() {
         duration: `${sceneSeconds}s`,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         sourceImage: parentVideo.sourceImage,
-        season: parentVideo.season,
-        weather: parentVideo.weather,
+        season: opts?.season || parentVideo.season,
+        weather: opts?.weather || parentVideo.weather,
         cost: estimatedCost.display,
         engine: 'omni',
         storyId: parentVideo.storyId || parentVideo.id,
@@ -2504,7 +2536,14 @@ export default function App() {
   };
 
   // Master trigger routing to Gemini Omni Flash
+  // The left panel's Generate: a new story, or the next scene of the open story.
   const handleTriggerGenerate = () => {
+    const last = openStoryLastScene;
+    if (last && nextStartsFrom === 'end') {
+      handleExtendScene(last, prompt, { seconds: parseInt(duration, 10) || 5, season: selectedSeason, weather: selectedWeather });
+      return;
+    }
+    appendToStoryRef.current = last ? last.storyId : null;
     handleGenerateVideo();
   };
 
@@ -3031,7 +3070,34 @@ export default function App() {
         {/* Left column: 1 Who and where, 2 What happens, Generate */}
         <section aria-label="Make a scene" className="lg:col-span-5 flex flex-col bg-slate-900/80 border border-slate-800 rounded-2xl shadow-xl self-start">
           <div className="p-4 sm:p-5 flex flex-col gap-5">
-            {/* Step 1: who and where */}
+            {/* With a story open, the panel makes the story's next scene */}
+            {openStoryLastScene && (
+              <div className="flex flex-col gap-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h2 className="text-base font-semibold text-white">Next scene: Scene {nextSceneNumber}</h2>
+                  <button type="button" onClick={handleStartNewStory} className="text-sm text-slate-400 hover:text-emerald-300 cursor-pointer">
+                    Start a new story instead
+                  </button>
+                </div>
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Starts from</span>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" aria-pressed={nextStartsFrom === 'end'} onClick={() => setNextStartsFrom('end')} className={`min-h-[36px] px-3.5 rounded-full border text-sm font-medium transition-colors cursor-pointer ${nextStartsFrom === 'end' ? 'bg-emerald-950/70 border-emerald-400 text-emerald-100' : 'bg-slate-950 border-slate-700 text-slate-300 hover:border-slate-500'}`}>
+                    End of Scene {nextSceneNumber - 1}
+                  </button>
+                  <button type="button" aria-pressed={nextStartsFrom === 'picture'} onClick={() => setNextStartsFrom('picture')} className={`min-h-[36px] px-3.5 rounded-full border text-sm font-medium transition-colors cursor-pointer ${nextStartsFrom === 'picture' ? 'bg-emerald-950/70 border-emerald-400 text-emerald-100' : 'bg-slate-950 border-slate-700 text-slate-300 hover:border-slate-500'}`}>
+                    A new picture
+                  </button>
+                </div>
+                <p className="text-xs text-slate-400">
+                  {nextStartsFrom === 'end'
+                    ? `Continues the same shot, so the cut from Scene ${nextSceneNumber - 1} is smooth.`
+                    : `Starts on the picture below. The cut from Scene ${nextSceneNumber - 1} is a hard cut; you can smooth it afterwards.`}
+                </p>
+              </div>
+            )}
+
+            {/* Step 1: who and where (not needed when the scene continues the last one) */}
+            {!continuesLastScene && (
             <div className="flex flex-col gap-3">
               <div className="flex items-center gap-2.5">
                 <span className="w-6 h-6 rounded-full bg-emerald-400 text-slate-950 text-xs font-bold flex items-center justify-center">1</span>
@@ -3068,13 +3134,14 @@ export default function App() {
                 </p>
               )}
             </div>
+            )}
 
             <div className="h-px bg-slate-800" />
 
             {/* Step 2: what happens */}
             <div className="flex flex-col gap-4">
               <div className="flex items-center gap-2.5">
-                <span className="w-6 h-6 rounded-full bg-emerald-400 text-slate-950 text-xs font-bold flex items-center justify-center">2</span>
+                <span className="w-6 h-6 rounded-full bg-emerald-400 text-slate-950 text-xs font-bold flex items-center justify-center">{continuesLastScene ? 1 : 2}</span>
                 <h2 className="text-base font-semibold text-white">What happens</h2>
               </div>
               <div className="flex flex-col gap-1.5">
@@ -3128,12 +3195,14 @@ export default function App() {
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Length</span>
                 <div className="flex flex-wrap gap-2">
                   {(['5s', '10s', '15s'] as const).map((d) => (
-                    <button key={d} type="button" aria-pressed={duration === d} onClick={() => setDuration(d)} className={`min-h-[36px] px-3.5 rounded-full border text-sm font-medium transition-colors cursor-pointer ${duration === d ? 'bg-emerald-950/70 border-emerald-400 text-emerald-100' : 'bg-slate-950 border-slate-700 text-slate-300 hover:border-slate-500'}`}>
+                    <button key={d} type="button" aria-pressed={duration === d} disabled={continuesLastScene && d === '15s'} onClick={() => setDuration(d)} className={`min-h-[36px] px-3.5 rounded-full border text-sm font-medium transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${duration === d ? 'bg-emerald-950/70 border-emerald-400 text-emerald-100' : 'bg-slate-950 border-slate-700 text-slate-300 hover:border-slate-500'}`}>
                       {parseInt(d, 10)} s
                     </button>
                   ))}
                 </div>
-                <p className="text-xs text-slate-400">Longer story? Add more scenes after this one.</p>
+                <p className="text-xs text-slate-400">
+                  {continuesLastScene ? 'Up to 10 s when the scene continues the one before.' : 'Longer story? Add more scenes after this one.'}
+                </p>
               </div>
 
               {/* More options: everything a scene does not always need */}
@@ -3166,7 +3235,7 @@ export default function App() {
                       onOpenGlossary={() => setShowGlossaryModal(true)}
                       season={selectedSeason}
                       weather={selectedWeather}
-                      isExtension={false}
+                      isExtension={continuesLastScene}
                       previousPrompt={currentVideo?.prompt}
                     />
                   </div>
@@ -3745,16 +3814,23 @@ export default function App() {
             <button
               type="button"
               onClick={handleTriggerGenerate}
-              disabled={isGenerating}
+              disabled={isGenerating || isExtending}
               className="w-full min-h-[52px] rounded-xl bg-emerald-400 hover:bg-emerald-300 text-slate-950 font-bold text-base flex items-center justify-center gap-2 transition-colors disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
             >
-              {isGenerating ? (
+              {isGenerating || isExtending ? (
                 <>
                   <RefreshCw className="w-4 h-4 animate-spin" />
                   <span>Making the scene… {progressPercent}%</span>
                 </>
               ) : (
-                <span>Generate scene · {parseInt(duration, 10)} s · ${estimatedCost.amount.toFixed(2)}</span>
+                (() => {
+                  const secs = continuesLastScene ? Math.min(10, parseInt(duration, 10) || 5) : parseInt(duration, 10) || 5;
+                  return (
+                    <span>
+                      Generate {openStoryLastScene ? `Scene ${nextSceneNumber}` : 'scene'} · {secs} s · ${(secs * estimatedCost.ratePerSec).toFixed(2)}
+                    </span>
+                  );
+                })()
               )}
             </button>
             <p className="text-xs text-slate-400 text-center">Takes about 1 minute.</p>
@@ -3771,8 +3847,8 @@ export default function App() {
                   <Film className="w-3.5 h-3.5 text-emerald-400" /> Preview
                 </span>
                 {currentVideo && (
-                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                    Ready
+                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    Now playing · Scene {currentVideo.sceneNumber || 1} of {currentStoryScenes.length}
                   </span>
                 )}
                 <button
@@ -3823,7 +3899,7 @@ export default function App() {
             {/* Video Canvas / Display Area */}
             <div className="relative w-full rounded-xl overflow-hidden bg-slate-950 border border-slate-800 flex items-center justify-center min-h-[420px] max-h-[580px]">
               {/* Generating overlay state */}
-              {isGenerating ? (
+              {isGenerating || isExtending ? (
                 <div className="p-6 flex flex-col items-center justify-center text-center max-w-md w-full gap-5 z-20">
                   <div className="relative w-24 h-24">
                     <motion.div
@@ -4075,7 +4151,7 @@ export default function App() {
                   title="If this scene didn't turn out right, re-take or refine it"
                 >
                   <Wrench className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Correct Scene {currentVideo.sceneNumber || 1}</span>
+                  <span>Change this scene</span>
                 </button>
 
                 {/* Generation Diagnostic & Reference Log Buttons */}
@@ -4150,99 +4226,46 @@ export default function App() {
           {currentVideo && (
             <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-xl flex flex-col gap-4">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
-                <div className="flex items-center gap-2">
-                  <Clapperboard className="w-4 h-4 text-emerald-400" />
-                  <span className="text-xs font-bold text-slate-100 uppercase tracking-wider">
-                    Storyboard Movie Sequence
-                  </span>
-                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-950/80 text-emerald-300 border border-emerald-500/30 font-medium">
-                    {currentStoryScenes.length} {currentStoryScenes.length === 1 ? 'Scene' : 'Scenes'} • {Math.round(totalStorySeconds)}s Total
+                <div className="flex flex-col">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Story</span>
+                  <span className="text-sm text-slate-200 mt-0.5">
+                    {currentStoryScenes.length} {currentStoryScenes.length === 1 ? 'scene' : 'scenes'} · {Math.round(totalStorySeconds)} s
                   </span>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
-                    onClick={handleStartNewStory}
-                    className="text-[11px] px-2.5 py-1 rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer bg-slate-950 border-slate-700 text-slate-200 hover:border-emerald-500"
-                    title="Close this story and start a new one with the next Generate or Upload Video"
-                  >
-                    <PlusCircle className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>New story</span>
-                  </button>
-
-                  {/* Continuous Auto-play toggle */}
-                  <button
-                    type="button"
+                    aria-pressed={playAllContinuous}
                     onClick={() => setPlayAllContinuous(!playAllContinuous)}
-                    className={`text-[11px] px-2.5 py-1 rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer ${
-                      playAllContinuous
-                        ? 'bg-emerald-950/80 border-emerald-500/80 text-emerald-300 font-semibold'
-                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                    className={`min-h-[40px] px-3 rounded-lg border text-sm font-medium flex items-center gap-1.5 cursor-pointer ${
+                      playAllContinuous ? 'bg-emerald-950/70 border-emerald-400 text-emerald-100' : 'border-slate-700 text-slate-200 hover:border-emerald-500'
                     }`}
-                    title="When ON, plays all scenes sequentially as one continuous movie"
+                    title="On: the scenes play one after another as one film. Off: the open scene loops"
                   >
-                    <ListVideo className="w-3.5 h-3.5" />
-                    <span>{playAllContinuous ? 'Continuous Movie: ON' : 'Single Scene Loop'}</span>
+                    <ListVideo className="w-4 h-4" />
+                    <span>{playAllContinuous ? 'Play whole story: On' : 'Play whole story: Off'}</span>
                   </button>
-
-                  {/* Export the whole story as one MP4 (edit list applied) */}
                   <button
                     type="button"
                     onClick={handleExportStory}
                     disabled={!!storyExport}
-                    className="text-[11px] px-2.5 py-1 rounded-lg border flex items-center gap-1.5 transition-all cursor-pointer bg-slate-950 border-slate-700 text-slate-200 hover:border-emerald-500 disabled:cursor-wait disabled:opacity-80"
+                    className="min-h-[40px] px-3 rounded-lg border border-slate-700 text-sm font-medium text-slate-200 hover:border-emerald-500 flex items-center gap-1.5 cursor-pointer disabled:cursor-wait disabled:opacity-80"
                     title="Download all scenes of this story as one MP4, each cut to its start and end"
                   >
-                    {storyExport ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                    {storyExport ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                     <span aria-live="polite">
-                      {storyExport
-                        ? `${storyExport.step} ${Math.round(storyExport.fraction * 100)}%`
-                        : `Export story (${currentStoryScenes.length} ${currentStoryScenes.length === 1 ? 'scene' : 'scenes'})`}
+                      {storyExport ? `${storyExport.step} ${Math.round(storyExport.fraction * 100)}%` : 'Export story as one video'}
                     </span>
                   </button>
-
-                  {/* Button to open Script to Storyboard modal */}
                   <button
                     type="button"
-                    onClick={() => setShowScriptModal(true)}
-                    className="px-2.5 py-1 bg-gradient-to-r from-amber-950/70 via-purple-950/70 to-slate-900 border border-amber-500/50 hover:border-amber-400 text-amber-200 font-semibold text-xs rounded-lg flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
-                    title="Generate multi-scene storyboard from a script or story"
+                    onClick={handleStartNewStory}
+                    className="min-h-[40px] px-3 rounded-lg border border-slate-700 text-sm font-medium text-slate-200 hover:border-emerald-500 flex items-center gap-1.5 cursor-pointer"
+                    title="Close this story; the next Generate starts a new one"
                   >
-                    <ScrollText className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Script to Story</span>
-                  </button>
-
-                  {/* Button to upload video clip */}
-                  <button
-                    type="button"
-                    onClick={() => openUploadSceneModal(currentVideo, 'after')}
-                    className="px-3 py-1 bg-blue-950/50 hover:bg-blue-900/70 border border-blue-500/40 text-blue-300 font-semibold text-xs rounded-lg flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
-                    title="Upload an external video file to become the scene before, after, or appended to current scene"
-                  >
-                    <Upload className="w-3.5 h-3.5 text-blue-400" />
-                    <span>Upload Clip</span>
-                  </button>
-
-                  {/* Button to correct current scene */}
-                  <button
-                    type="button"
-                    onClick={() => openCorrectionModal(currentVideo)}
-                    className="px-3 py-1 bg-amber-950/40 hover:bg-amber-900/60 border border-amber-500/40 text-amber-300 font-semibold text-xs rounded-lg flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
-                    title="Refine or re-take the active scene"
-                  >
-                    <Wrench className="w-3.5 h-3.5" />
-                    <span>Correct Scene {currentVideo.sceneNumber || 1}</span>
-                  </button>
-
-                  {/* Button to open extension drawer */}
-                  <button
-                    type="button"
-                    onClick={() => setShowExtensionDrawer(!showExtensionDrawer)}
-                    className="px-3 py-1 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-semibold text-xs rounded-lg flex items-center gap-1.5 shadow-md shadow-emerald-500/20 transition-all cursor-pointer"
-                  >
-                    <PlusCircle className="w-3.5 h-3.5" />
-                    <span>+ Add Next Scene</span>
+                    <PlusCircle className="w-4 h-4 text-emerald-400" />
+                    <span>New story</span>
                   </button>
                 </div>
               </div>
@@ -4372,7 +4395,7 @@ export default function App() {
 
               {/* Timeline Strip */}
               <div
-                className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin"
+                className="flex items-stretch gap-2 overflow-x-auto pb-1 scrollbar-thin"
                 onDragOver={(e) => sceneDragOver(e, currentVideo.storyId, 'end')}
                 onDrop={sceneDrop}
               >
@@ -4388,12 +4411,13 @@ export default function App() {
                             setTransitionPair({ from: currentStoryScenes[idx - 1], to: scene });
                           }}
                           disabled={isMakingTransition}
-                          className="shrink-0 flex flex-col items-center gap-0.5 px-1 py-1.5 rounded-lg text-slate-500 hover:text-emerald-300 hover:bg-emerald-950/40 transition-colors cursor-pointer disabled:opacity-40"
-                          title={`Smooth the cut between Scene ${currentStoryScenes[idx - 1].sceneNumber} and Scene ${scene.sceneNumber} with a generated transition`}
-                          aria-label={`Smooth transition between scene ${currentStoryScenes[idx - 1].sceneNumber} and scene ${scene.sceneNumber}`}
+                          className="shrink-0 self-center min-h-[44px] px-2 rounded-lg border border-dashed border-emerald-500/70 text-emerald-300 hover:bg-emerald-950/40 text-xs font-semibold leading-tight cursor-pointer disabled:opacity-40"
+                          title={`Make a short AI clip between Scene ${currentStoryScenes[idx - 1].sceneNumber} and Scene ${scene.sceneNumber}, so the cut does not jump`}
+                          aria-label={`Smooth the cut between scene ${currentStoryScenes[idx - 1].sceneNumber} and scene ${scene.sceneNumber}`}
                         >
-                          <ChevronRight className="w-4 h-4" />
-                          <span className="text-[9px] font-semibold uppercase tracking-wide">Smooth</span>
+                          Smooth
+                          <br />
+                          cut
                         </button>
                       )}
                       <div
@@ -4407,7 +4431,7 @@ export default function App() {
                           setCompareMode('video');
                         }}
                         title="Drag to move this scene, here or into another story. Hold Alt (Option) to copy it instead"
-                        className={`shrink-0 w-48 p-2.5 rounded-xl border transition-all cursor-pointer flex flex-col gap-1.5 group relative ${
+                        className={`shrink-0 w-52 self-stretch p-2.5 rounded-xl border transition-all cursor-pointer flex flex-col gap-2 group relative ${
                           dragSceneId === scene.id ? 'opacity-40 ' : ''
                         }${
                           dropBar(scene.storyId, idx, scene.id)
@@ -4417,53 +4441,100 @@ export default function App() {
                             : 'bg-slate-950 border-slate-800 hover:border-slate-700 hover:bg-slate-900/60'
                         }`}
                       >
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1">
-                            <Film className="w-3 h-3" /> Scene {scene.sceneNumber || idx + 1}
+                        <div className="flex items-center justify-between text-sm">
+                          <strong className="text-white">Scene {scene.sceneNumber || idx + 1}</strong>
+                          <span className="text-slate-400">
+                            {isSelected ? 'playing · ' : ''}
+                            {Math.round(scenePlaySeconds(scene))} s
                           </span>
-                          <div className="flex items-center gap-1">
-                            <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-800 text-slate-300">
-                              {scene.trimStart !== undefined || scene.trimEnd !== undefined
-                                ? `${(scene.trimStart ?? 0).toFixed(1)}–${scene.trimEnd !== undefined ? scene.trimEnd.toFixed(1) : 'end'}s`
-                                : scene.duration || '5s'}
-                            </span>
-                            {/* Quick card action buttons */}
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openCorrectionModal(scene);
-                              }}
-                              title="Correct this scene"
-                              className="p-1 rounded hover:bg-amber-500/20 text-slate-400 hover:text-amber-300 transition-colors cursor-pointer"
-                            >
-                              <Wrench className="w-3 h-3" />
-                            </button>
-                            {currentStoryScenes.length > 1 && (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (confirm(`Remove Scene ${scene.sceneNumber || idx + 1} from sequence?`)) {
-                                    handleDeleteScene(scene);
-                                  }
-                                }}
-                                title="Remove this scene"
-                                className="p-1 rounded hover:bg-red-500/20 text-slate-400 hover:text-red-300 transition-colors cursor-pointer"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </button>
-                            )}
-                          </div>
                         </div>
-                        <p className="text-[11px] text-slate-300 line-clamp-2 leading-snug">
+                        <div className="relative rounded-lg overflow-hidden bg-slate-900 h-28">
+                          <video
+                            key={`${scene.id}-${scene.trimStart ?? 0}`}
+                            src={scene.videoUrl}
+                            preload="metadata"
+                            muted
+                            onLoadedMetadata={(e) => {
+                              if (scene.trimStart) e.currentTarget.currentTime = scene.trimStart;
+                            }}
+                            className="w-full h-full object-cover pointer-events-none"
+                          />
+                        </div>
+                        <p className="text-xs text-slate-300 line-clamp-2 leading-snug" title={scene.prompt}>
                           {scene.prompt}
                         </p>
 
-                        {/* Reorder & Insert Video Strip on Card */}
-                        <div className="flex items-center justify-between text-[10px] text-slate-500 pt-1.5 border-t border-slate-800/60">
-                          {/* Reorder arrows */}
-                          <div className="flex items-center gap-1">
+                        {/* Add a scene before / after: choose AI or an uploaded clip */}
+                        <div className="grid grid-cols-2 gap-1.5 mt-auto">
+                          {(['before', 'after'] as const).map((side) => (
+                            <button
+                              key={side}
+                              type="button"
+                              aria-expanded={addMenu?.sceneId === scene.id && addMenu.side === side}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setAddMenu((m) => (m?.sceneId === scene.id && m.side === side ? null : { sceneId: scene.id, side }));
+                              }}
+                              className="min-h-[36px] rounded-lg border border-slate-700 text-xs font-medium text-slate-200 hover:border-emerald-500 cursor-pointer"
+                            >
+                              {side === 'before' ? '+ Before' : '+ After'}
+                            </button>
+                          ))}
+                        </div>
+                        {addMenu?.sceneId === scene.id && (
+                          <div className="flex flex-col gap-1.5 p-2 rounded-lg bg-slate-900 border border-emerald-500/50" onClick={(e) => e.stopPropagation()}>
+                            <span className="text-[11px] text-slate-400">
+                              New scene {addMenu.side === 'before' ? 'before' : 'after'} Scene {scene.sceneNumber || idx + 1}
+                            </span>
+                            <button
+                              type="button"
+                              disabled={addMenu.side === 'before' && isMakingTransition}
+                              onClick={() => {
+                                setAddMenu(null);
+                                if (addMenu.side === 'before') {
+                                  setTransitionError(null);
+                                  setTransitionPair(
+                                    idx > 0
+                                      ? { from: currentStoryScenes[idx - 1], to: scene }
+                                      : { from: null, to: scene, startImage: scene.sourceImage || selectedImage }
+                                  );
+                                } else {
+                                  setCurrentVideo(scene);
+                                  setCompareMode('video');
+                                  setShowExtensionDrawer(true);
+                                }
+                              }}
+                              className="min-h-[36px] rounded-lg bg-emerald-400 hover:bg-emerald-300 text-slate-950 text-xs font-bold cursor-pointer disabled:opacity-50"
+                            >
+                              Make it with AI
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAddMenu(null);
+                                openUploadSceneModal(scene, addMenu.side);
+                              }}
+                              className="min-h-[36px] rounded-lg border border-slate-600 text-xs font-medium text-slate-200 hover:border-emerald-500 cursor-pointer"
+                            >
+                              Upload a clip
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Change, move earlier / later, remove */}
+                        <div className="flex items-center justify-between pt-1.5 border-t border-slate-800/60">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openCorrectionModal(scene);
+                            }}
+                            className="min-h-[32px] px-2 rounded-lg text-xs text-slate-300 hover:text-amber-200 hover:bg-amber-500/10 flex items-center gap-1 cursor-pointer"
+                            title="Make a new version of this scene"
+                          >
+                            <Wrench className="w-3.5 h-3.5" /> Change
+                          </button>
+                          <div className="flex items-center gap-0.5">
                             {idx > 0 && (
                               <button
                                 type="button"
@@ -4471,10 +4542,11 @@ export default function App() {
                                   e.stopPropagation();
                                   handleMoveScene(scene.id, 'left');
                                 }}
-                                title="Move Scene Earlier"
-                                className="p-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-emerald-300 transition-colors cursor-pointer"
+                                title="Move earlier"
+                                aria-label={`Move Scene ${scene.sceneNumber || idx + 1} earlier`}
+                                className="p-1.5 rounded text-slate-400 hover:text-emerald-300 hover:bg-slate-800 cursor-pointer"
                               >
-                                <MoveLeft className="w-3 h-3" />
+                                <MoveLeft className="w-3.5 h-3.5" />
                               </button>
                             )}
                             {idx < currentStoryScenes.length - 1 && (
@@ -4484,114 +4556,60 @@ export default function App() {
                                   e.stopPropagation();
                                   handleMoveScene(scene.id, 'right');
                                 }}
-                                title="Move Scene Later"
-                                className="p-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-emerald-300 transition-colors cursor-pointer"
+                                title="Move later"
+                                aria-label={`Move Scene ${scene.sceneNumber || idx + 1} later`}
+                                className="p-1.5 rounded text-slate-400 hover:text-emerald-300 hover:bg-slate-800 cursor-pointer"
                               >
-                                <MoveRight className="w-3 h-3" />
+                                <MoveRight className="w-3.5 h-3.5" />
                               </button>
                             )}
-                            <span className={scene.cost?.includes('Free') ? 'text-emerald-400 font-medium text-[9px]' : 'text-amber-400 text-[9px]'}>
-                              {scene.cost || 'Free'}
-                            </span>
+                            {currentStoryScenes.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (confirm(`Remove Scene ${scene.sceneNumber || idx + 1} from the story? This can't be undone.`)) {
+                                    handleDeleteScene(scene);
+                                  }
+                                }}
+                                title="Remove this scene"
+                                aria-label={`Remove Scene ${scene.sceneNumber || idx + 1}`}
+                                className="p-1.5 rounded text-slate-400 hover:text-red-300 hover:bg-red-500/10 cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                           </div>
-
-                        </div>
-
-                        {/* Add a scene before / after this one: AI-made or an uploaded clip */}
-                        <div className="grid grid-cols-2 gap-1">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setTransitionError(null);
-                              setTransitionPair(
-                                idx > 0
-                                  ? { from: currentStoryScenes[idx - 1], to: scene }
-                                  : { from: null, to: scene, startImage: scene.sourceImage || selectedImage }
-                              );
-                            }}
-                            disabled={isMakingTransition}
-                            title={
-                              idx > 0
-                                ? `Generate a new AI scene between Scene ${currentStoryScenes[idx - 1].sceneNumber} and this one`
-                                : 'Generate a new AI scene before this one, ending on its first frame'
-                            }
-                            className="text-[9px] px-1 py-0.5 rounded bg-emerald-950/60 hover:bg-emerald-900 text-emerald-300 border border-emerald-700/40 font-medium transition-colors cursor-pointer disabled:opacity-40"
-                          >
-                            + AI before
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setCurrentVideo(scene);
-                              setCompareMode('video');
-                              setShowExtensionDrawer(true);
-                            }}
-                            title={
-                              idx < currentStoryScenes.length - 1
-                                ? 'Generate a new AI scene between this scene and the next'
-                                : 'Generate a new AI scene after this one'
-                            }
-                            className="text-[9px] px-1 py-0.5 rounded bg-emerald-950/60 hover:bg-emerald-900 text-emerald-300 border border-emerald-700/40 font-medium transition-colors cursor-pointer"
-                          >
-                            + AI after
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openUploadSceneModal(scene, 'before');
-                            }}
-                            title="Upload a video clip to insert BEFORE this scene"
-                            className="text-[9px] px-1 py-0.5 rounded bg-blue-950/60 hover:bg-blue-900 text-blue-300 border border-blue-700/40 font-medium transition-colors cursor-pointer"
-                          >
-                            + Clip before
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openUploadSceneModal(scene, 'after');
-                            }}
-                            title="Upload a video clip to insert AFTER this scene"
-                            className="text-[9px] px-1 py-0.5 rounded bg-blue-950/60 hover:bg-blue-900 text-blue-300 border border-blue-700/40 font-medium transition-colors cursor-pointer"
-                          >
-                            + Clip after
-                          </button>
                         </div>
                       </div>
                     </React.Fragment>
                   );
                 })}
 
-                {/* Add Next AI Scene Card */}
-                <ChevronRight className="w-4 h-4 text-slate-600 shrink-0" />
+                {/* The next scene is written in the left panel */}
                 <button
                   type="button"
-                  onClick={() => setShowExtensionDrawer(true)}
-                  className="shrink-0 w-36 p-3 rounded-xl border border-dashed border-slate-700 hover:border-emerald-500 bg-slate-950/40 hover:bg-emerald-950/20 text-slate-400 hover:text-emerald-300 transition-all flex flex-col items-center justify-center gap-2 cursor-pointer h-24"
+                  onClick={() => {
+                    setNextStartsFrom('end');
+                    const box = document.getElementById('scene-text') as HTMLTextAreaElement | null;
+                    box?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    box?.focus();
+                  }}
+                  className="shrink-0 w-40 self-stretch p-3 rounded-xl border border-dashed border-slate-600 hover:border-emerald-500 text-slate-300 hover:text-emerald-200 flex flex-col items-center justify-center gap-1.5 text-center cursor-pointer"
                 >
-                  <PlusCircle className="w-5 h-5 text-emerald-400" />
-                  <span className="text-xs font-semibold text-center leading-tight">
-                    Add Scene {currentStoryScenes.length + 1}
-                  </span>
-                  <span className="text-[9px] text-slate-500">AI Continuation</span>
+                  <strong className="text-sm text-white">Scene {currentStoryScenes.length + 1}</strong>
+                  <span className="text-xs">Write it in the left panel</span>
                 </button>
 
                 {/* Upload Video Clip Card */}
-                <ChevronRight className="w-4 h-4 text-slate-600 shrink-0" />
                 <button
                   type="button"
                   onClick={() => openUploadSceneModal(undefined, 'append')}
-                  className="shrink-0 w-36 p-3 rounded-xl border border-dashed border-blue-700/60 hover:border-blue-500 bg-blue-950/20 hover:bg-blue-950/40 text-blue-300 hover:text-blue-200 transition-all flex flex-col items-center justify-center gap-2 cursor-pointer h-24"
-                  title="Upload any video clip to insert into this movie"
+                  className="shrink-0 w-36 self-stretch p-3 rounded-xl border border-dashed border-slate-700 hover:border-emerald-500 text-slate-400 hover:text-emerald-200 flex flex-col items-center justify-center gap-1.5 text-center cursor-pointer"
+                  title="Upload a video clip to add at the end of the story"
                 >
-                  <Upload className="w-5 h-5 text-blue-400" />
-                  <span className="text-xs font-semibold text-center leading-tight">
-                    Upload Video Clip
-                  </span>
-                  <span className="text-[9px] text-blue-400/80">Append / Insert</span>
+                  <Upload className="w-4 h-4" />
+                  <span className="text-xs font-medium">Upload a clip</span>
                 </button>
               </div>
 
