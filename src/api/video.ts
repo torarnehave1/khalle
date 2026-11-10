@@ -23,6 +23,41 @@ function pickDuration(value: unknown, max: number, fallback: string): string {
   return `${Math.min(max, Math.max(3, Math.round(n)))}s`;
 }
 
+
+// Season and weather the user picked, as a directive. Only the look of the season and weather;
+// no location, so a forest or a bedroom stays a forest or a bedroom.
+const SEASON_LOOK: Record<string, string> = {
+  spring: 'spring: fresh light-green leaves, blossoms and young grass',
+  summer: 'summer: warm bright sunlight and full green foliage',
+  autumn: 'autumn: golden, copper and red leaves, some falling',
+  winter: 'winter: snow on the ground and on trees, cold crisp air',
+};
+const WEATHER_LOOK: Record<string, string> = {
+  sunny: 'clear and sunny',
+  snowing: 'gentle snowfall, snowflakes drifting down through the whole shot',
+  rain: 'gentle rain, raindrops falling and glistening',
+  sunset: 'golden sunset light',
+  misty: 'soft morning mist',
+  rainbow: 'a rainbow in the sky after rain',
+};
+
+export function atmosphereDirective(prompt: string, season?: string, weather?: string): string {
+  // The app's own preset prompts already end with "The scene is set in <season> … The weather features …".
+  if (/the scene is set in /i.test(prompt)) return '';
+  const s = season && SEASON_LOOK[season];
+  const w = weather && WEATHER_LOOK[weather];
+  if (!s && !w) return '';
+  return `\n\n[SEASON & WEATHER]:\n${s ? `Season: ${s}.\n` : ''}${w ? `Weather: ${w}.\n` : ''}Keep the scene's own location and apply this season and weather to it. If the scene text asks for a different season or weather, or the scene is indoors, follow the scene text.`;
+}
+
+// Sound follows the sound setting only. A word like "silently" in the scene text no longer mutes the video.
+export function audioDirective(audioMode: string, what: 'video' | 'continuation'): string {
+  if (audioMode === 'silent') {
+    return `\n\n[AUDIO DIRECTIVE - SILENT]:\nSilent cinematic video with pure visual elegance. Do not generate audio or sound effects.`;
+  }
+  return `\n\n[AUDIO DIRECTIVE - SOUND]:\nGenerate synchronized audio alongside the ${what} that fits what happens in the scene: the ambient sound of the setting, the season and the weather, and sound effects for the characters' actions.`;
+}
+
 // Image-to-Video Animation endpoint using Gemini Omni Flash via Interactions API
 export async function executeAnimateCore(body: any) {
   const startTime = Date.now();
@@ -141,11 +176,8 @@ The following ${resolvedImages.length} reference images are attached in order in
   let fullDirectives = getCharacterDirective(body, resolvedImages);
   fullDirectives += formatProductionDirectives(body, resolvedImages);
 
-  if (audioMode === 'silent' || prompt.toLowerCase().includes('silent') || prompt.toLowerCase().includes('no sound')) {
-    fullDirectives += `\n\n[AUDIO DIRECTIVE - SILENT]:\nSilent cinematic video with pure visual elegance. Do not generate audio or sound effects.`;
-  } else {
-    fullDirectives += `\n\n[AUDIO DIRECTIVE - IMMERSIVE SOUND]:\nGenerate rich synchronized audio alongside the video: whistling alpine wind, rustling meadow grass, birdsong, and energetic playful cartoon bounce sound effects.`;
-  }
+  fullDirectives += atmosphereDirective(prompt, season, weather);
+  fullDirectives += audioDirective(audioMode, 'video');
 
   const sanitizedPrompt = sanitizePromptToImageReference(prompt.trim(), resolvedImages);
   const lockedPrompt = `${resolvedImages.length ? `${imageManifest}\n\n` : ''}${fullDirectives}\n\n[ANIMATION SCENE ACTION DIRECTIVE]:\n${sanitizedPrompt}`;
@@ -474,11 +506,8 @@ The following ${resolvedImages.length} reference images are attached in order in
   let fullDirectives = getCharacterDirective(body, resolvedImages);
   fullDirectives += formatProductionDirectives(body, resolvedImages);
 
-  if (audioMode === 'silent' || continuationPrompt.toLowerCase().includes('silent') || continuationPrompt.toLowerCase().includes('no sound')) {
-    fullDirectives += `\n\n[AUDIO DIRECTIVE - SILENT]:\nSilent cinematic video with pure visual elegance. Do not generate audio or sound effects.`;
-  } else {
-    fullDirectives += `\n\n[AUDIO DIRECTIVE - IMMERSIVE SOUND]:\nGenerate rich synchronized audio alongside the continuation: whistling alpine wind, rustling meadow grass, birdsong, and energetic playful cartoon bounce sound effects.`;
-  }
+  fullDirectives += atmosphereDirective(continuationPrompt, season, weather);
+  fullDirectives += audioDirective(audioMode, 'continuation');
 
   const sanitizedContinuationPrompt = sanitizePromptToImageReference(continuationPrompt.trim(), resolvedImages);
   const lockedContinuationPrompt = `${resolvedImages.length ? `${imageManifest}\n\n` : ''}${fullDirectives}\n\n[SCENE CONTINUATION DIRECTIVE]:\n${sanitizedContinuationPrompt}`;

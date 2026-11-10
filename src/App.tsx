@@ -3877,7 +3877,7 @@ export default function App() {
                     <span>Audio Mode</span>
                   </span>
                   <span className="text-[10px] text-slate-500 font-normal">
-                    {audioMode === 'with_sound' ? 'Alpine wind, birdsong & bounce SFX' : 'Pure silent visual elegance'}
+                    {audioMode === 'with_sound' ? 'Sound that fits the scene' : 'Pure silent visual elegance'}
                   </span>
                 </label>
                 <div className="grid grid-cols-2 gap-2">
