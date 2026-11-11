@@ -12,6 +12,7 @@ import {
   type BoardScene,
   type PictureModel,
 } from '../api/board';
+import { KHALLE_PICTURE } from '../api/board';
 import { GEMINI_ALBUM, savePictureToAlbum } from '../api/albums';
 import AlbumPicker, { type AlbumDestination } from './AlbumPicker';
 import SceneFramePicker, { type FrameSourceStory } from './SceneFramePicker';
@@ -97,7 +98,7 @@ export default function StoryBoard({ board, boards, onChange, onSelect, onNew, o
     setSplitting(true);
     setNote(null);
     try {
-      const res = await splitStory(board.story, board.cast);
+      const res = await splitStory(board.story, board.cast, !board.noKhalle);
       update({
         title: board.title === 'New story' && res.title ? res.title : board.title,
         scenes: res.scenes.map((s) => ({ id: newId('bs'), action: s.action, picture: s.picture, seconds: s.seconds, status: 'none' as const })),
@@ -175,7 +176,7 @@ export default function StoryBoard({ board, boards, onChange, onSelect, onNew, o
     if (!castForm?.description.trim()) return;
     setCastForm({ ...castForm, busy: true, error: undefined });
     try {
-      const image = await makeCastPicture({ name: castForm.name.trim() || 'Character', description: castForm.description, model: board.model, others: board.cast });
+      const image = await makeCastPicture({ name: castForm.name.trim() || 'Character', description: castForm.description, model: board.model, others: board.cast, khalle: !board.noKhalle });
       addCast(image, castForm.name.trim() || undefined);
       setCastForm(null);
     } catch (e: any) {
@@ -283,8 +284,24 @@ export default function StoryBoard({ board, boards, onChange, onSelect, onNew, o
           >
             <span className={label}>Characters, props and places</span>
             <p className="text-sm text-slate-400">Sent with every key picture, so the looks stay the same. Drop a picture here too.</p>
-            {board.cast.length > 0 && (
+            {(board.cast.length > 0 || !board.noKhalle) && (
               <div className="flex flex-wrap gap-3">
+                {!board.noKhalle && (
+                  <div className="w-[96px] flex flex-col gap-1.5 items-center" title="Khalle is in every story board. His picture and look are sent with the scenes and every key picture.">
+                    <div className="relative">
+                      <img src={KHALLE_PICTURE} alt="Khalle" className="w-[84px] h-[84px] rounded-xl object-cover border-2 border-emerald-400/70" />
+                      <button
+                        type="button"
+                        aria-label="Leave Khalle out of this board"
+                        onClick={() => update({ noKhalle: true })}
+                        className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-slate-800 border border-slate-600 text-slate-200 flex items-center justify-center cursor-pointer"
+                      >
+                        ×
+                      </button>
+                    </div>
+                    <span className="text-xs text-center text-slate-200">Khalle · built in</span>
+                  </div>
+                )}
                 {board.cast.map((c) => (
                   <div key={c.id} className="w-[96px] flex flex-col gap-1.5 items-center">
                     <div className="relative">
@@ -314,6 +331,9 @@ export default function StoryBoard({ board, boards, onChange, onSelect, onNew, o
               <button type="button" onClick={() => pasteTo('cast')} className={ghost}><ClipboardPaste className="w-4 h-4" /> Paste</button>
               <button type="button" onClick={() => castFileRef.current?.click()} className={ghost}><Upload className="w-4 h-4" /> Upload</button>
               <button type="button" onClick={() => setCastForm({ name: '', description: '', busy: false })} className={ghost}><Wand2 className="w-4 h-4" /> Make with Gemini</button>
+              {board.noKhalle && (
+                <button type="button" onClick={() => update({ noKhalle: false })} className={ghost}><Plus className="w-4 h-4" /> Add Khalle back</button>
+              )}
               <input
                 ref={castFileRef}
                 type="file"

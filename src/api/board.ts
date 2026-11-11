@@ -8,6 +8,34 @@
  */
 import { generateContent, Type } from './gemini';
 import { pictureOnWhite } from '../lib/onWhite';
+import { KHALLE_LOOK } from './shortPrompt';
+
+/** Khalle is built into every story board (decision 2026-11-11: A). This picture and KHALLE_LOOK are sent. */
+export const KHALLE_PICTURE = '/assets/aistudio/rabbit_wayfinder_jump_no_symbol.jpg';
+let khalleCache: Promise<string> | null = null;
+export function khallePicture(): Promise<string> {
+  if (!khalleCache) {
+    khalleCache = fetch(KHALLE_PICTURE)
+      .then((r) => {
+        if (!r.ok) throw new Error('The picture of Khalle could not be loaded.');
+        return r.blob();
+      })
+      .then(
+        (b) =>
+          new Promise<string>((resolve, reject) => {
+            const fr = new FileReader();
+            fr.onload = () => resolve(String(fr.result));
+            fr.onerror = () => reject(fr.error);
+            fr.readAsDataURL(b);
+          })
+      )
+      .catch((e) => {
+        khalleCache = null;
+        throw e;
+      });
+  }
+  return khalleCache;
+}
 
 export type PictureModel = 'flash' | 'pro';
 export const PICTURE_MODELS: Record<PictureModel, { id: string; label: string }> = {
@@ -46,6 +74,8 @@ export type Board = {
   updatedAt: number;
   /** Removed boards are kept as a marker so another device does not bring them back. */
   deleted?: boolean;
+  /** Khalle is in every board unless removed from this one (true = removed). */
+  noKhalle?: boolean;
 };
 
 export const newId = (prefix: string) => `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -61,7 +91,7 @@ const dataUrlPart = (dataUrl: string) => {
 };
 
 /** Gemini splits the story into 2–8 scenes, each with what happens and what the key picture shows. */
-export async function splitStory(story: string, cast: BoardCast[]): Promise<{ title: string; scenes: { action: string; picture: string; seconds: 5 | 10 }[] }> {
+export async function splitStory(story: string, cast: BoardCast[], khalle = true): Promise<{ title: string; scenes: { action: string; picture: string; seconds: 5 | 10 }[] }> {
   const names = cast.map((c) => c.name).filter(Boolean);
   const res = await generateContent({
     model: STORY_MODEL,
@@ -79,6 +109,7 @@ export async function splitStory(story: string, cast: BoardCast[]): Promise<{ ti
               '  who is in it, where, pose, light and camera framing. It must be one still moment, not a movement.',
               '- seconds: 5 or 10.',
               'Keep the same characters, place and light from scene to scene unless the story changes them.',
+              khalle ? `The main character is ${KHALLE_LOOK}. Always call him Khalle and describe him as a green plush rabbit, never as another animal.` : '',
               names.length ? `Use these names for the characters, props and places: ${names.join(', ')}.` : '',
               'Also give the film a short title, at most 6 words.',
               '',
@@ -140,14 +171,22 @@ export async function makeKeyPicture(opts: {
     'Photographic look, like real plush toys filmed with a real camera; soft natural light; shallow depth of field.',
     `Frame: ${board.aspectRatio === '9:16' ? 'vertical 9:16' : 'wide 16:9'}. No text, no captions, no borders.`,
   ];
-  for (const [i, c] of board.cast.entries()) {
+  let n = 0;
+  if (!board.noKhalle) {
+    parts.push(dataUrlPart(await khallePicture()));
+    n = 1;
+    lines.push(
+      `Picture 1 is ${KHALLE_LOOK}. He is the main character: whenever Khalle is in the picture, draw exactly this plush rabbit (shape, colours, fur, face, scarf, boots), never another animal. Do not copy the background of Picture 1.`
+    );
+  }
+  for (const [k, c] of board.cast.entries()) {
     parts.push(dataUrlPart(await pictureOnWhite(c.image)));
-    lines.push(`Picture ${i + 1} is "${c.name}". When ${c.name} is in the scene, keep exactly this look (shape, colours, fur, face, clothes).`);
+    lines.push(`Picture ${n + k + 1} is "${c.name}". When ${c.name} is in the scene, keep exactly this look (shape, colours, fur, face, clothes).`);
   }
   if (previous?.image) {
     parts.push(dataUrlPart(await pictureOnWhite(previous.image)));
     lines.push(
-      `Picture ${board.cast.length + 1} is the key picture of the scene before. Keep the same characters' looks, and the same place and light where the story stays there.`
+      `Picture ${n + board.cast.length + 1} is the key picture of the scene before. Keep the same characters' looks, and the same place and light where the story stays there.`
     );
   }
   if (board.story.trim()) lines.push(`The whole story, for context: ${board.story.trim()}`);
@@ -168,15 +207,20 @@ export async function makeKeyPicture(opts: {
 }
 
 /** "Make with Gemini" for a character, prop or place: one picture of it alone, plain background. */
-export async function makeCastPicture(opts: { name: string; description: string; model: PictureModel; others: BoardCast[] }): Promise<string> {
+export async function makeCastPicture(opts: { name: string; description: string; model: PictureModel; others: BoardCast[]; khalle?: boolean }): Promise<string> {
   const parts: any[] = [];
   const lines = [
     `Make a reference picture of "${opts.name}" for a children's film with plush toy characters: ${opts.description.trim()}`,
     'Show it alone, whole, centred, from the front at eye level, on a plain soft neutral background. Photographic look of a real plush toy or real object. No text.',
   ];
+  const first = opts.khalle ? 1 : 0;
+  if (opts.khalle) {
+    parts.push(dataUrlPart(await khallePicture()));
+    lines.push('Picture 1 is Khalle, the main character of the same film: match his plush style and scale (do not draw Khalle unless asked).');
+  }
   for (const [i, c] of opts.others.entries()) {
     parts.push(dataUrlPart(await pictureOnWhite(c.image)));
-    lines.push(`Picture ${i + 1} is "${c.name}" from the same film: match its style and scale.`);
+    lines.push(`Picture ${first + i + 1} is "${c.name}" from the same film: match its style and scale.`);
   }
   parts.push({ text: lines.join('\n') });
   const res = await generateContent({

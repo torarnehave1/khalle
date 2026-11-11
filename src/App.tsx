@@ -2918,6 +2918,8 @@ export default function App() {
       setCurrentVideo(last);
       setSceneRefs([]);
     }
+    // "Khalle in scene" follows the board: built in, unless removed from this board.
+    setIncludeKhalle(!board.noKhalle);
     setBoardRun({ boardId: board.id, index, lastId: last?.id, before: videoHistory.map((v) => v.id), started: false });
     setView('make');
     window.scrollTo({ top: 0 });

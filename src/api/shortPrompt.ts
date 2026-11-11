@@ -23,8 +23,9 @@ const WEATHER: Record<string, string> = {
   rainbow: 'a rainbow after rain',
 };
 
-const KHALLE_LOOK =
-  'Khalle, a green plush rabbit with tall upright ears, one white buck tooth, a light-pink snout, a pink scarf and a pink belly patch';
+/** How Khalle looks (matches public/assets/aistudio/rabbit_wayfinder_jump_no_symbol.jpg). Also used by the story board. */
+export const KHALLE_LOOK =
+  'Khalle, a green plush rabbit with tall ears, blue eyes, a brown nose, white buck teeth, a pink scarf, a pink belly patch and red boots';
 
 type Kind = 'video' | 'continuation';
 
