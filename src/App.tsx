@@ -649,8 +649,8 @@ export default function App() {
 
   // Jump Action & Environment state
   const [activePreset, setActivePreset] = useState<string>(JUMP_PRESETS[0].id);
-  const [selectedSeason, setSelectedSeason] = useState<string>('spring');
-  const [selectedWeather, setSelectedWeather] = useState<string>('sunny');
+  const [selectedSeason, setSelectedSeason] = useState<string>(''); // '' = not set: nothing about season is sent (decision 2026-11-11)
+  const [selectedWeather, setSelectedWeather] = useState<string>('');
   const [autoCompose, setAutoCompose] = useState<boolean>(true);
 
   // Pricing & Spend Cap state
@@ -659,13 +659,14 @@ export default function App() {
 
   // Helper to construct prompt from base action + season + weather
   const composePrompt = (baseActionText: string, seasonId: string, weatherId: string) => {
-    const s = SEASONS.find((item) => item.id === seasonId) || SEASONS[0];
-    const w = WEATHER_OPTIONS.find((item) => item.id === weatherId) || WEATHER_OPTIONS[0];
-    return `${baseActionText.trim()} The scene is set in ${s.name.toLowerCase()} with ${s.description}. The weather features ${w.description}.`;
+    const s = SEASONS.find((item) => item.id === seasonId);
+    const w = WEATHER_OPTIONS.find((item) => item.id === weatherId);
+    // Season and weather are only written when the user picked them.
+    return `${baseActionText.trim()}${s ? ` The scene is set in ${s.name.toLowerCase()} with ${s.description}.` : ''}${w ? ` The weather features ${w.description}.` : ''}`;
   };
 
   const [prompt, setPrompt] = useState<string>(() =>
-    composePrompt(JUMP_PRESETS[0].baseAction, 'spring', 'sunny')
+    composePrompt(JUMP_PRESETS[0].baseAction, '', '')
   );
 
   const [aspectRatio, setAspectRatio] = useState<'9:16' | '16:9'>('9:16');
@@ -767,8 +768,8 @@ export default function App() {
   // After a scene is corrected, the next scene still follows the old take. Offer a transition.
   const [joinOffer, setJoinOffer] = useState<{ sceneId: string; nextId: string } | null>(null);
   const [correctionFeedback, setCorrectionFeedback] = useState<string>('');
-  const [correctionSeason, setCorrectionSeason] = useState<string>('spring');
-  const [correctionWeather, setCorrectionWeather] = useState<string>('sunny');
+  const [correctionSeason, setCorrectionSeason] = useState<string>('');
+  const [correctionWeather, setCorrectionWeather] = useState<string>('');
   const [correctionMode, setCorrectionMode] = useState<'replace' | 'duplicate'>('replace');
   const [correctionSeconds, setCorrectionSeconds] = useState<number>(5);
   /** Problems picked in "What is wrong?" (ids from SCENE_PROBLEMS). */
@@ -968,8 +969,8 @@ export default function App() {
 
   const handleApplyScriptScene = (scene: ScriptSceneSuggestion) => {
     setPrompt(scene.videoPrompt);
-    setSelectedSeason(scene.season || 'spring');
-    setSelectedWeather(scene.weather || 'sunny');
+    setSelectedSeason(scene.season || '');
+    setSelectedWeather(scene.weather || '');
     if (scene.audioMode === 'silent') {
       setAudioMode('silent');
     } else {
@@ -1888,10 +1889,10 @@ export default function App() {
     setSelectedImage(activeEmblem?.type === 'none' ? NO_SYMBOL_RABBIT_PATH : activeEmblem?.id === 'emblem-vegvisir' ? WAYFINDER_RABBIT_PATH : DEFAULT_RABBIT_PATH);
     setIsDefaultImage(true);
     setImageMimeType('image/jpeg');
-    setSelectedSeason('spring');
-    setSelectedWeather('sunny');
+    setSelectedSeason('');
+    setSelectedWeather('');
     setActivePreset(JUMP_PRESETS[0].id);
-    setPrompt(composePrompt(JUMP_PRESETS[0].baseAction, 'spring', 'sunny'));
+    setPrompt(composePrompt(JUMP_PRESETS[0].baseAction, '', ''));
     setAspectRatio('9:16');
     setErrorMessage(null);
   };
@@ -1907,15 +1908,15 @@ export default function App() {
     }
     setErrorMessage(null);
     setProgressPercent(10);
-    setProgressStep(`Applying ${currentSeasonObj.name} season & ${currentWeatherObj.name} weather...`);
+    setProgressStep('Getting the picture and text ready...');
 
     const progressInterval = setInterval(() => {
       setProgressPercent((prev) => {
         if (prev < 30) {
-          setProgressStep(`Connecting to gemini-omni-1.2-flash (${currentSeasonObj.badge})...`);
+          setProgressStep('Sending to gemini-omni-1.2-flash...');
           return prev + 5;
         } else if (prev < 65) {
-          setProgressStep(`Rendering plush rabbit jump in ${currentSeasonObj.name} under ${currentWeatherObj.name}...`);
+          setProgressStep('Gemini is making the video...');
           return prev + 3;
         } else if (prev < 88) {
           setProgressStep('Synthesizing motion frames, atmospheric lighting & particles...');
@@ -2417,8 +2418,8 @@ export default function App() {
           aspectRatio: parentVideo.aspectRatio,
           duration: `${sceneSeconds}s`,
           resolution,
-          season: opts?.season || parentVideo.season || selectedSeason,
-          weather: opts?.weather || parentVideo.weather || selectedWeather,
+          season: opts ? opts.season : parentVideo.season || selectedSeason,
+          weather: opts ? opts.weather : parentVideo.weather || selectedWeather,
           audioMode,
           silentTalk: silentTalk,
           clothingDirective: combinedClothingDirective || undefined,
@@ -4245,10 +4246,10 @@ export default function App() {
               </div>
 
               <div className="flex flex-col gap-2">
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Season</span>
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Season <span className="normal-case tracking-normal font-normal text-slate-500">· optional, tap again to clear{!selectedSeason && !selectedWeather ? ' · none sent' : ''}</span></span>
                 <div className="flex flex-wrap gap-2">
                   {SEASONS.map((s) => (
-                    <button key={s.id} type="button" aria-pressed={selectedSeason === s.id} onClick={() => handleSeasonChange(s.id)} className={`min-h-[36px] px-3.5 rounded-full border text-sm font-medium transition-colors cursor-pointer ${selectedSeason === s.id ? 'bg-emerald-950/70 border-emerald-400 text-emerald-100' : 'bg-slate-950 border-slate-700 text-slate-300 hover:border-slate-500'}`}>
+                    <button key={s.id} type="button" aria-pressed={selectedSeason === s.id} onClick={() => handleSeasonChange(selectedSeason === s.id ? '' : s.id)} className={`min-h-[36px] px-3.5 rounded-full border text-sm font-medium transition-colors cursor-pointer ${selectedSeason === s.id ? 'bg-emerald-950/70 border-emerald-400 text-emerald-100' : 'bg-slate-950 border-slate-700 text-slate-300 hover:border-slate-500'}`}>
                       {s.name}
                     </button>
                   ))}
@@ -4258,7 +4259,7 @@ export default function App() {
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Weather</span>
                 <div className="flex flex-wrap gap-2">
                   {WEATHER_OPTIONS.map((w) => (
-                    <button key={w.id} type="button" aria-pressed={selectedWeather === w.id} onClick={() => handleWeatherChange(w.id)} className={`min-h-[36px] px-3.5 rounded-full border text-sm font-medium transition-colors cursor-pointer ${selectedWeather === w.id ? 'bg-emerald-950/70 border-emerald-400 text-emerald-100' : 'bg-slate-950 border-slate-700 text-slate-300 hover:border-slate-500'}`}>
+                    <button key={w.id} type="button" aria-pressed={selectedWeather === w.id} onClick={() => handleWeatherChange(selectedWeather === w.id ? '' : w.id)} className={`min-h-[36px] px-3.5 rounded-full border text-sm font-medium transition-colors cursor-pointer ${selectedWeather === w.id ? 'bg-emerald-950/70 border-emerald-400 text-emerald-100' : 'bg-slate-950 border-slate-700 text-slate-300 hover:border-slate-500'}`}>
                       {({ sunny: 'Sunny', snowing: 'Snow', rain: 'Rain', sunset: 'Sunset', misty: 'Mist', rainbow: 'Rainbow' } as Record<string, string>)[w.id] || w.name}
                     </button>
                   ))}
@@ -6063,17 +6064,17 @@ export default function App() {
 
                   <div className="flex flex-wrap gap-5">
                     <div className="flex-[1_1_240px] flex flex-col gap-2">
-                      <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Season and weather</span>
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Season and weather <span className="normal-case tracking-normal font-normal text-slate-500">· optional, tap again to clear</span></span>
                       <div className="flex flex-wrap gap-2">
                         {SEASONS.map((x) => (
-                          <button key={x.id} type="button" aria-pressed={correctionSeason === x.id} onClick={() => setCorrectionSeason(x.id)} className={`min-h-[36px] px-3.5 rounded-full border text-sm font-medium transition-colors cursor-pointer ${correctionSeason === x.id ? 'bg-emerald-950/70 border-emerald-400 text-emerald-100' : 'bg-slate-950 border-slate-700 text-slate-300 hover:border-slate-500'}`}>
+                          <button key={x.id} type="button" aria-pressed={correctionSeason === x.id} onClick={() => setCorrectionSeason(correctionSeason === x.id ? '' : x.id)} className={`min-h-[36px] px-3.5 rounded-full border text-sm font-medium transition-colors cursor-pointer ${correctionSeason === x.id ? 'bg-emerald-950/70 border-emerald-400 text-emerald-100' : 'bg-slate-950 border-slate-700 text-slate-300 hover:border-slate-500'}`}>
                             {x.name}
                           </button>
                         ))}
                       </div>
                       <div className="flex flex-wrap gap-2">
                         {WEATHER_OPTIONS.map((w) => (
-                          <button key={w.id} type="button" aria-pressed={correctionWeather === w.id} onClick={() => setCorrectionWeather(w.id)} className={`min-h-[36px] px-3.5 rounded-full border text-sm font-medium transition-colors cursor-pointer ${correctionWeather === w.id ? 'bg-emerald-950/70 border-emerald-400 text-emerald-100' : 'bg-slate-950 border-slate-700 text-slate-300 hover:border-slate-500'}`}>
+                          <button key={w.id} type="button" aria-pressed={correctionWeather === w.id} onClick={() => setCorrectionWeather(correctionWeather === w.id ? '' : w.id)} className={`min-h-[36px] px-3.5 rounded-full border text-sm font-medium transition-colors cursor-pointer ${correctionWeather === w.id ? 'bg-emerald-950/70 border-emerald-400 text-emerald-100' : 'bg-slate-950 border-slate-700 text-slate-300 hover:border-slate-500'}`}>
                             {({ sunny: 'Sunny', snowing: 'Snow', rain: 'Rain', sunset: 'Sunset', misty: 'Mist', rainbow: 'Rainbow' } as Record<string, string>)[w.id] || w.name}
                           </button>
                         ))}

@@ -34,8 +34,8 @@ When generating video with diffusion models like Gemini Omni Flash:
 
 Context:
 - Subject: A cute bright green fuzzy plush rabbit with floppy ears, pink nose, and red boots in an alpine meadow with mountains and wildflowers.
-- Current Season: ${season}
-- Current Weather: ${weather}
+- Current Season: ${season || 'not set (do not add one)'}
+- Current Weather: ${weather || 'not set (do not add one)'}
 - Aspect Ratio: ${aspectRatio}
 - Scene Number: ${sceneNumber}
 ${previousPrompt ? `- Previous Scene Action: "${previousPrompt}"` : ''}
@@ -136,7 +136,7 @@ Draft input: "${rawPrompt || 'The plush rabbit jumps and looks around'}"
 Selected perspective: "${perspective || 'Dramatic Low-Angle'}"
 Selected camera movement/zoom: "${cameraMotion || 'Slow Push-In Zoom'}"
 Selected lighting/atmosphere: "${lighting || 'Golden Hour Sunbeams'}"
-Season: ${season}, Weather: ${weather}
+Season: ${season || 'not set'}, Weather: ${weather || 'not set'}
 ${isExtension && previousPrompt ? `Previous Scene: "${previousPrompt}". This is a continuous sequel scene.` : ''}
 
 Enhance this draft into a single cohesive, production-grade video generation prompt. Make sure the prompt instructs the model on:
@@ -188,8 +188,8 @@ export const handleSuggestClothingGuide: RouteHandler = async (req, res) => {
 The creator is filming a cute green plush rabbit character and wants creative clothing/costumes, physical props/scenery guides, and companion characters (wildlife/plush friends) to enrich the shoot.
 
 Current Scene Context:
-- Season: ${season}
-- Weather: ${weather}
+- Season: ${season || 'not set'}
+- Weather: ${weather || 'not set'}
 - Action / Story: "${currentPrompt}"
 ${theme ? `- Creator's Desired Theme: "${theme}"` : ''}
 
