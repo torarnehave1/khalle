@@ -2629,6 +2629,47 @@ export default function App() {
       setCurrentVideo(nextActive);
     }
     setShowCorrectionModal(false);
+    // A story board scene made from it needs making again.
+    setBoards((list) =>
+      list.map((b) =>
+        b.scenes.some((sc) => sc.madeSceneId === sceneToDelete.id)
+          ? { ...b, scenes: b.scenes.map((sc) => (sc.madeSceneId === sceneToDelete.id ? { ...sc, madeSceneId: undefined } : sc)), updatedAt: Date.now() }
+          : b
+      )
+    );
+  };
+
+  /** Removes every scene of a story. The clips are removed from the account at the next save. */
+  const handleDeleteStory = (storyId: string) => {
+    const gone = new Set(videoHistory.filter((v) => (v.storyId || v.id) === storyId).map((v) => v.id));
+    setVideoHistory((prev) => prev.filter((v) => (v.storyId || v.id) !== storyId));
+    if (currentVideo && gone.has(currentVideo.id)) setCurrentVideo(null);
+    setMoveMenu(null);
+    setBoards((list) =>
+      list.map((b) =>
+        b.storyId === storyId || b.scenes.some((sc) => sc.madeSceneId && gone.has(sc.madeSceneId))
+          ? {
+              ...b,
+              storyId: b.storyId === storyId ? undefined : b.storyId,
+              scenes: b.scenes.map((sc) => (sc.madeSceneId && gone.has(sc.madeSceneId) ? { ...sc, madeSceneId: undefined } : sc)),
+              updatedAt: Date.now(),
+            }
+          : b
+      )
+    );
+  };
+  const confirmDeleteStory = (storyId: string, name: string, count: number) => {
+    if (confirm(`Delete the story "${name}" and its ${count} ${count === 1 ? 'scene' : 'scenes'}? The videos are removed from your account too. This can't be undone.`)) {
+      handleDeleteStory(storyId);
+    }
+  };
+  const confirmDeleteScene = (scene: GeneratedVideo, storyScenes: GeneratedVideo[]) => {
+    const n = scene.sceneNumber || storyScenes.findIndex((v) => v.id === scene.id) + 1;
+    if (storyScenes.length <= 1) {
+      confirmDeleteStory(scene.storyId || scene.id, storyName(storyScenes), 1);
+      return;
+    }
+    if (confirm(`Delete Scene ${n}? Its video is removed from your account too. This can't be undone.`)) handleDeleteScene(scene);
   };
 
   // Apply corrections and re-take the scene
@@ -3791,6 +3832,13 @@ export default function App() {
                     >
                       Rename
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => confirmDeleteStory(storyId, storyName(scenes), scenes.length)}
+                      className="min-h-[40px] px-3 rounded-lg border border-slate-700 text-sm text-rose-300 hover:border-rose-500 hover:bg-rose-500/10 flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Trash2 className="w-4 h-4" /> Delete story
+                    </button>
                   </div>
                 </div>
 
@@ -3840,7 +3888,8 @@ export default function App() {
                             </span>
                             <button
                               type="button"
-                              aria-label={`Move or copy Scene ${idx + 1}`}
+                              aria-label={`Move, copy or delete Scene ${idx + 1}`}
+                              title="Move, copy or delete this scene"
                               aria-expanded={menuOpen}
                               onClick={() =>
                                 setMoveMenu(
@@ -3862,7 +3911,7 @@ export default function App() {
 
                         {menuOpen && moveMenu && (
                           <div role="dialog" aria-label={`Move or copy Scene ${idx + 1}`} className="w-72 p-3.5 rounded-xl bg-slate-900 border border-emerald-500/70 flex flex-col gap-2.5">
-                            <strong className="text-sm text-white">Move or copy Scene {idx + 1}</strong>
+                            <strong className="text-sm text-white">Move, copy or delete Scene {idx + 1}</strong>
                             <label htmlFor={`to-story-${vid.id}`} className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">To story</label>
                             <select
                               id={`to-story-${vid.id}`}
@@ -3932,6 +3981,16 @@ export default function App() {
                               </button>
                             </div>
                             <p className="text-xs text-slate-400">A moved scene keeps its video. The cut where it lands may jump; use Smooth cut there.</p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMoveMenu(null);
+                                confirmDeleteScene(vid, scenes);
+                              }}
+                              className="min-h-[44px] rounded-lg border border-rose-700/70 text-sm font-medium text-rose-300 hover:bg-rose-500/10 flex items-center justify-center gap-1.5 cursor-pointer"
+                            >
+                              <Trash2 className="w-4 h-4" /> Delete Scene {idx + 1}
+                            </button>
                           </div>
                         )}
                       </div>
@@ -5244,6 +5303,15 @@ export default function App() {
                 </button>
                 <button
                   type="button"
+                  onClick={() => confirmDeleteScene(currentVideo, currentStoryScenes.length ? currentStoryScenes : [currentVideo])}
+                  className="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/40 font-semibold rounded-lg flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
+                  title="Delete this scene (the last scene of a story deletes the story)"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete this scene</span>
+                </button>
+                <button
+                  type="button"
                   onClick={() => openCastModal(currentVideo)}
                   className="px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-200 border border-emerald-500/40 font-semibold rounded-lg flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
                   title="Pause on a good frame, then save how the main character looks, so later scenes keep that look"
@@ -5670,16 +5738,14 @@ export default function App() {
                                 <MoveRight className="w-3.5 h-3.5" />
                               </button>
                             )}
-                            {currentStoryScenes.length > 1 && (
+                            {(
                               <button
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  if (confirm(`Remove Scene ${scene.sceneNumber || idx + 1} from the story? This can't be undone.`)) {
-                                    handleDeleteScene(scene);
-                                  }
+                                  confirmDeleteScene(scene, currentStoryScenes);
                                 }}
-                                title="Remove this scene"
+                                title="Delete this scene"
                                 aria-label={`Remove Scene ${scene.sceneNumber || idx + 1}`}
                                 className="p-1.5 rounded text-slate-400 hover:text-red-300 hover:bg-red-500/10 cursor-pointer"
                               >
