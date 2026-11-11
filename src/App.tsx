@@ -90,6 +90,7 @@ import { useBoards } from './lib/boardStore';
 import StoryBoard from './components/StoryBoard';
 import AlbumPicker from './components/AlbumPicker';
 import PromptReview, { type PromptReviewData } from './components/PromptReview';
+import { pictureOnWhite } from './lib/onWhite';
 import { newBoard } from './api/board';
 import { useTrimmedPlayback } from './lib/trimPlayback';
 import { extensionChainSeconds, MAX_EXTENSION_CHAIN_SECONDS } from './lib/extensionChain';
@@ -1817,17 +1818,25 @@ export default function App() {
       setErrorMessage('That is not a picture. Use a JPEG, PNG or WebP image.');
       return;
     }
-    setImageMimeType(file.type);
     setIsDefaultImage(false);
     // With a story open, a new picture means the next scene starts from it.
     setNextStartsFrom('picture');
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      setSelectedImage(event.target?.result as string);
-      setErrorMessage(null);
-      setPictureNote(how === 'chosen' ? null : `Picture ${how} as the start picture.`);
-    };
-    reader.readAsDataURL(file);
+    // A cutout (transparency) is put on white and becomes a JPEG: Gemini ignores transparency.
+    void pictureOnWhite(file)
+      .then((url) => {
+        const flattened = !url.startsWith(`data:${file.type}`);
+        setImageMimeType(url.slice(5, url.indexOf(';')) || file.type);
+        setSelectedImage(url);
+        setErrorMessage(null);
+        setPictureNote(
+          flattened
+            ? 'The picture has a transparent background, so it is put on white (Gemini does not use transparency).'
+            : how === 'chosen'
+            ? null
+            : `Picture ${how} as the start picture.`
+        );
+      })
+      .catch((e) => setErrorMessage(e?.message || 'The picture could not be read.'));
   };
 
   /** Add a picture (chosen, pasted or dropped) to the next scene's reference pictures. */
@@ -1836,17 +1845,14 @@ export default function App() {
       setErrorMessage('That is not a picture. Use a JPEG, PNG or WebP image.');
       return;
     }
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const image = event.target?.result as string;
+    void pictureOnWhite(file).then((image) => {
       setSceneRefs((list) =>
         list.length >= 3
           ? list
           : [...list, { id: `ref-${Date.now()}`, image, label: list.length ? '' : 'The wider view of the scene', endHere: false }]
       );
       setPictureNote(null);
-    };
-    reader.readAsDataURL(file);
+    });
   };
   const pasteSceneRefFromClipboard = async () => {
     try {

@@ -7,6 +7,7 @@
  * Interpolation allows 3–10 seconds; over 10 s is an invalid-argument error.
  */
 import { getGeminiClient } from './gemini';
+import { pictureOnWhite } from '../lib/onWhite';
 
 export const TRANSITION_MIN_SECONDS = 3;
 export const TRANSITION_MAX_SECONDS = 10;
@@ -37,8 +38,8 @@ export async function generateTransition(opts: {
 }): Promise<{ videoUrl: string; interactionId: string; duration: string }> {
   const seconds = Math.min(TRANSITION_MAX_SECONDS, Math.max(TRANSITION_MIN_SECONDS, Math.round(opts.seconds)));
   const duration = `${seconds}s`;
-  const first = dataUrlParts(opts.firstFrame);
-  const last = dataUrlParts(opts.lastFrame);
+  const first = dataUrlParts(await pictureOnWhite(opts.firstFrame));
+  const last = dataUrlParts(await pictureOnWhite(opts.lastFrame));
 
   const interaction: any = await getGeminiClient().interactions.create(
     {

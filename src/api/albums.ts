@@ -9,6 +9,7 @@
  */
 import { getApiToken } from '../lib/auth';
 import { fetchRemoteImage } from './gemini';
+import { pictureOnWhite } from '../lib/onWhite';
 
 const ALBUMS_BASE = 'https://albums.vegvisr.org';
 const PHOTOS_BASE = 'https://photos-api.vegvisr.org';
@@ -94,7 +95,7 @@ const blobToDataUrl = (blob: Blob) =>
 
 export async function albumPictureAsDataUrl(url: string): Promise<string> {
   const res = await fetchRemoteImage(url, 30000);
-  return blobToDataUrl(await res.blob());
+  return pictureOnWhite(await blobToDataUrl(await res.blob()));
 }
 
 export async function savePictureToAlbum(dataUrl: string, album: string, name: string): Promise<string> {

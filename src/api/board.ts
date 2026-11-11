@@ -7,6 +7,7 @@
  * Both calls go through gemini.vegvisr.org /v1/generate (the worker passes any model through).
  */
 import { generateContent, Type } from './gemini';
+import { pictureOnWhite } from '../lib/onWhite';
 
 export type PictureModel = 'flash' | 'pro';
 export const PICTURE_MODELS: Record<PictureModel, { id: string; label: string }> = {
@@ -139,12 +140,12 @@ export async function makeKeyPicture(opts: {
     'Photographic look, like real plush toys filmed with a real camera; soft natural light; shallow depth of field.',
     `Frame: ${board.aspectRatio === '9:16' ? 'vertical 9:16' : 'wide 16:9'}. No text, no captions, no borders.`,
   ];
-  board.cast.forEach((c, i) => {
-    parts.push(dataUrlPart(c.image));
+  for (const [i, c] of board.cast.entries()) {
+    parts.push(dataUrlPart(await pictureOnWhite(c.image)));
     lines.push(`Picture ${i + 1} is "${c.name}". When ${c.name} is in the scene, keep exactly this look (shape, colours, fur, face, clothes).`);
-  });
+  }
   if (previous?.image) {
-    parts.push(dataUrlPart(previous.image));
+    parts.push(dataUrlPart(await pictureOnWhite(previous.image)));
     lines.push(
       `Picture ${board.cast.length + 1} is the key picture of the scene before. Keep the same characters' looks, and the same place and light where the story stays there.`
     );
@@ -173,10 +174,10 @@ export async function makeCastPicture(opts: { name: string; description: string;
     `Make a reference picture of "${opts.name}" for a children's film with plush toy characters: ${opts.description.trim()}`,
     'Show it alone, whole, centred, from the front at eye level, on a plain soft neutral background. Photographic look of a real plush toy or real object. No text.',
   ];
-  opts.others.forEach((c, i) => {
-    parts.push(dataUrlPart(c.image));
+  for (const [i, c] of opts.others.entries()) {
+    parts.push(dataUrlPart(await pictureOnWhite(c.image)));
     lines.push(`Picture ${i + 1} is "${c.name}" from the same film: match its style and scale.`);
-  });
+  }
   parts.push({ text: lines.join('\n') });
   const res = await generateContent({
     model: PICTURE_MODELS[opts.model].id,

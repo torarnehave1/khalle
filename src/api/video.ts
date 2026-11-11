@@ -10,6 +10,20 @@ import type { RouteHandler } from './http';
 import { quotaState, recentGenerationLogs, recordGenerationLog, type GenerationLogRecord } from './logs';
 import { excludesKhalle, resolveReferenceImages } from './references';
 import { buildShortPrompt } from './shortPrompt';
+import { base64OnWhite } from '../lib/onWhite';
+
+/** Transparent pictures go on white (Gemini ignores transparency; see lib/onWhite). */
+async function putOnWhite(images: Awaited<ReturnType<typeof resolveReferenceImages>>) {
+  for (const img of images) {
+    const f = await base64OnWhite(img.base64, img.mimeType);
+    if (f.base64 === img.base64) continue;
+    img.base64 = f.base64;
+    img.mimeType = f.mimeType;
+    img.byteSize = base64ByteLength(f.base64);
+    img.filename = img.filename.replace(/\.(png|webp|gif|avif)$/i, '.jpg');
+    img.previewUrl = `data:${f.mimeType};base64,${f.base64}`;
+  }
+}
 
 /** "7s" / 7 → "7s", clamped to 3..max whole seconds. Unreadable → fallback. */
 function pickDuration(value: unknown, max: number, fallback: string): string {
@@ -146,6 +160,7 @@ export async function executeAnimateCore(body: any) {
   };
 
   const resolvedImages = await resolveReferenceImages(body);
+  await putOnWhite(resolvedImages);
   // With Khalle switched off and no start picture, the video is made from the text alone.
   if (resolvedImages.length === 0 && !excludesKhalle(body)) {
     logRecord.status = 'failed';
@@ -468,6 +483,7 @@ export async function executeExtendCore(body: any) {
   };
 
   const resolvedImages = await resolveReferenceImages(body);
+  await putOnWhite(resolvedImages);
 
   // The short text (decision 2026-11-11, B); see executeAnimateCore.
   const sanitizedContinuationPrompt = withoutComposedAtmosphere(prompt);

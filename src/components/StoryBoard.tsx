@@ -1,3 +1,4 @@
+import { pictureOnWhite } from '../lib/onWhite';
 import { useRef, useState } from 'react';
 import { RefreshCw, Plus, Trash2, Check, ArrowDown, Images, ClipboardPaste, Upload, Wand2, Film } from 'lucide-react';
 import {
@@ -36,13 +37,8 @@ type Props = {
   frameStories: FrameSourceStory[];
 };
 
-const fileToDataUrl = (file: Blob) =>
-  new Promise<string>((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(String(r.result));
-    r.onerror = () => reject(r.error);
-    r.readAsDataURL(file);
-  });
+// Transparent pictures are put on white (Gemini ignores transparency; see lib/onWhite).
+const fileToDataUrl = (file: Blob) => pictureOnWhite(file);
 
 async function clipboardImage(): Promise<string | null> {
   try {
