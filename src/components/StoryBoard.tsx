@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { RefreshCw, Plus, Trash2, Check, ArrowDown, Images, ClipboardPaste, Upload, Wand2 } from 'lucide-react';
+import { RefreshCw, Plus, Trash2, Check, ArrowDown, Images, ClipboardPaste, Upload, Wand2, Film } from 'lucide-react';
 import {
   makeCastPicture,
   makeKeyPicture,
@@ -13,6 +13,7 @@ import {
 } from '../api/board';
 import { GEMINI_ALBUM, savePictureToAlbum } from '../api/albums';
 import AlbumPicker, { type AlbumDestination } from './AlbumPicker';
+import SceneFramePicker, { type FrameSourceStory } from './SceneFramePicker';
 
 /** A video scene of the board's story, as the board needs to know it. */
 export type MadeScene = { id: string; sceneNumber: number };
@@ -31,6 +32,8 @@ type Props = {
   onOpenStory: () => void;
   busy: boolean;
   ratePerSec: number;
+  /** All stories and their scenes, for "From a scene" (a frame becomes a picture). */
+  frameStories: FrameSourceStory[];
 };
 
 const fileToDataUrl = (file: Blob) =>
@@ -59,12 +62,14 @@ const ghost = 'min-h-[36px] px-3 rounded-lg border border-slate-700 text-sm text
 const field = 'w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500';
 
 /** Story board: write the story → scenes with key pictures → approve → make the film scene by scene. */
-export default function StoryBoard({ board, boards, onChange, onSelect, onNew, onDelete, storyScenes, onMakeScene, onOpenStory, busy, ratePerSec }: Props) {
+export default function StoryBoard({ board, boards, onChange, onSelect, onNew, onDelete, storyScenes, onMakeScene, onOpenStory, busy, ratePerSec, frameStories }: Props) {
   const [splitting, setSplitting] = useState(false);
   const [making, setMaking] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [note, setNote] = useState<string | null>(null);
   const [albums, setAlbums] = useState<{ target: string } | null>(null);
+  /** "From a scene": which board scene (id) or 'cast' gets the frame. */
+  const [framePick, setFramePick] = useState<{ target: string } | null>(null);
   const [castForm, setCastForm] = useState<{ name: string; description: string; busy: boolean; error?: string } | null>(null);
   const castFileRef = useRef<HTMLInputElement | null>(null);
   const sceneFileRef = useRef<HTMLInputElement | null>(null);
@@ -309,6 +314,7 @@ export default function StoryBoard({ board, boards, onChange, onSelect, onNew, o
             )}
             <div className="flex flex-wrap gap-2">
               <button type="button" onClick={() => setAlbums({ target: 'cast' })} className={ghost}><Images className="w-4 h-4" /> From my albums</button>
+              <button type="button" onClick={() => setFramePick({ target: 'cast' })} className={ghost}><Film className="w-4 h-4" /> From a scene</button>
               <button type="button" onClick={() => pasteTo('cast')} className={ghost}><ClipboardPaste className="w-4 h-4" /> Paste</button>
               <button type="button" onClick={() => castFileRef.current?.click()} className={ghost}><Upload className="w-4 h-4" /> Upload</button>
               <button type="button" onClick={() => setCastForm({ name: '', description: '', busy: false })} className={ghost}><Wand2 className="w-4 h-4" /> Make with Gemini</button>
@@ -438,6 +444,7 @@ export default function StoryBoard({ board, boards, onChange, onSelect, onNew, o
                         </button>
                         <button type="button" onClick={() => pasteTo(s.id)} className={ghost}><ClipboardPaste className="w-4 h-4" /> Paste</button>
                         <button type="button" onClick={() => setAlbums({ target: s.id })} className={ghost}><Images className="w-4 h-4" /> From my albums</button>
+                        <button type="button" onClick={() => setFramePick({ target: s.id })} className={ghost}><Film className="w-4 h-4" /> From a scene</button>
                         <button type="button" onClick={() => { sceneFileFor.current = s.id; sceneFileRef.current?.click(); }} className={ghost}><Upload className="w-4 h-4" /> Upload</button>
                         {s.image && <button type="button" onClick={() => saveToAlbum(s, i)} className={ghost}>Save to album</button>}
                         <button
@@ -517,6 +524,25 @@ export default function StoryBoard({ board, boards, onChange, onSelect, onNew, o
             </div>
           </div>
         </div>
+      )}
+
+      {framePick && (
+        <SceneFramePicker
+          stories={frameStories}
+          initialStoryId={board.storyId}
+          useLabel={
+            framePick.target === 'cast'
+              ? 'character, prop or place'
+              : `key picture for Scene ${board.scenes.findIndex((s) => s.id === framePick.target) + 1}`
+          }
+          onClose={() => setFramePick(null)}
+          onUse={(dataUrl) => {
+            const target = framePick.target;
+            setFramePick(null);
+            if (target === 'cast') addCast(dataUrl);
+            else setScenePicture(target, dataUrl);
+          }}
+        />
       )}
 
       {albums && (

@@ -3622,6 +3622,18 @@ export default function App() {
               }}
               busy={isGenerating}
               ratePerSec={estimatedCost.ratePerSec}
+              frameStories={stories.map((st) => ({
+                storyId: st.storyId,
+                title: storyName(st.scenes),
+                scenes: st.scenes.map((v, i) => ({
+                  id: v.id,
+                  sceneNumber: i + 1,
+                  videoUrl: v.videoUrl,
+                  text: v.prompt,
+                  trimStart: v.trimStart,
+                  trimEnd: storyPlayEnd(v, st.scenes[i + 1]),
+                })),
+              }))}
             />
           ) : (
             <div className="max-w-xl mx-auto mt-12 bg-slate-900 border border-slate-800 rounded-2xl p-6 flex flex-col gap-3 text-center">
