@@ -648,10 +648,11 @@ export default function App() {
   const [imageMimeType, setImageMimeType] = useState<string>('image/jpeg');
 
   // Jump Action & Environment state
-  const [activePreset, setActivePreset] = useState<string>(JUMP_PRESETS[0].id);
+  const [activePreset, setActivePreset] = useState<string>('');
   const [selectedSeason, setSelectedSeason] = useState<string>(''); // '' = not set: nothing about season is sent (decision 2026-11-11)
   const [selectedWeather, setSelectedWeather] = useState<string>('');
-  const [autoCompose, setAutoCompose] = useState<boolean>(true);
+  // Off: picking a season never rewrites the user's text (decision 2026-11-11: the box starts empty).
+  const [autoCompose, setAutoCompose] = useState<boolean>(false);
 
   // Pricing & Spend Cap state
   const [showPricingModal, setShowPricingModal] = useState<boolean>(false);
@@ -665,9 +666,7 @@ export default function App() {
     return `${baseActionText.trim()}${s ? ` The scene is set in ${s.name.toLowerCase()} with ${s.description}.` : ''}${w ? ` The weather features ${w.description}.` : ''}`;
   };
 
-  const [prompt, setPrompt] = useState<string>(() =>
-    composePrompt(JUMP_PRESETS[0].baseAction, '', '')
-  );
+  const [prompt, setPrompt] = useState<string>('');
 
   const [aspectRatio, setAspectRatio] = useState<'9:16' | '16:9'>('9:16');
   const [duration, setDuration] = useState<'5s' | '10s' | '15s' | '20s' | '30s'>('5s');
@@ -1892,7 +1891,6 @@ export default function App() {
     setSelectedSeason('');
     setSelectedWeather('');
     setActivePreset(JUMP_PRESETS[0].id);
-    setPrompt(composePrompt(JUMP_PRESETS[0].baseAction, '', ''));
     setAspectRatio('9:16');
     setErrorMessage(null);
   };
@@ -4895,7 +4893,7 @@ export default function App() {
             <button
               type="button"
               onClick={handleTriggerGenerate}
-              disabled={isGenerating || isExtending}
+              disabled={isGenerating || isExtending || !prompt.trim()}
               className="w-full min-h-[52px] rounded-xl bg-emerald-400 hover:bg-emerald-300 text-slate-950 font-bold text-base flex items-center justify-center gap-2 transition-colors disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
             >
               {isGenerating || isExtending ? (
@@ -4906,6 +4904,7 @@ export default function App() {
               ) : (
                 (() => {
                   const secs = continuesLastScene ? Math.min(10, parseInt(duration, 10) || 5) : parseInt(duration, 10) || 5;
+                  if (!prompt.trim()) return <span>Write what happens first</span>;
                   return (
                     <span>
                       Generate {openStoryLastScene ? `Scene ${nextSceneNumber}` : 'scene'} · {secs} s · ${(secs * estimatedCost.ratePerSec).toFixed(2)}
