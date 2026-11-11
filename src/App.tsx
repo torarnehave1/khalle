@@ -864,6 +864,8 @@ export default function App() {
    * A board scene being made: the board's text and picture are put into the make-a-scene state, and
    * the effect below starts the normal Generate once that state is in place (so it reads it fresh).
    */
+  /** A board scene was just made: the banner leads back to the board (decision 2026-11-11: A). */
+  const [boardDone, setBoardDone] = useState<{ boardId: string; title: string; index: number; total: number } | null>(null);
   const [boardRun, setBoardRun] = useState<{ boardId: string; index: number; lastId?: string; before: string[]; started: boolean; done?: boolean } | null>(null);
   /** "From my albums" on the make-a-scene screen: for the start picture or a reference picture. */
   const [makeAlbums, setMakeAlbums] = useState<null | 'start' | 'ref'>(null);
@@ -2920,6 +2922,7 @@ export default function App() {
     }
     // "Khalle in scene" follows the board: built in, unless removed from this board.
     setIncludeKhalle(!board.noKhalle);
+    setBoardDone(null);
     setBoardRun({ boardId: board.id, index, lastId: last?.id, before: videoHistory.map((v) => v.id), started: false });
     setView('make');
     window.scrollTo({ top: 0 });
@@ -2971,6 +2974,12 @@ export default function App() {
     if (!lastStory && board.title.trim()) {
       setVideoHistory((prev) => prev.map((v) => (v.storyId === made.storyId && !v.storyTitle ? { ...v, storyTitle: board.title.trim() } : v)));
     }
+    // The scene screen must not offer to make the same scene again: clear its text and picture.
+    setBoardDone({ boardId: board.id, title: board.title.trim() || 'the story board', index: boardRun.index, total: board.scenes.length });
+    setPrompt('');
+    setSelectedImage(NO_SYMBOL_RABBIT_PATH);
+    setIsDefaultImage(true);
+    setImageMimeType('image/jpeg');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [boardRun, videoHistory]);
 
@@ -4014,6 +4023,33 @@ export default function App() {
         {/* Left column: 1 Who and where, 2 What happens, Generate */}
         <section aria-label="Make a scene" className="lg:col-span-5 flex flex-col bg-slate-900/80 border border-slate-800 rounded-2xl shadow-xl self-start">
           <div className="p-4 sm:p-5 flex flex-col gap-5">
+            {boardDone && (
+              <div role="status" className="flex flex-col gap-2.5 bg-emerald-950/50 border border-emerald-500/60 rounded-xl p-3.5">
+                <div className="flex items-start justify-between gap-3">
+                  <p className="text-sm text-emerald-100">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 inline -mt-0.5 mr-1.5" />
+                    <strong>Scene {boardDone.index + 1}</strong> of “{boardDone.title}” is made. Watch it here, then go back to the board
+                    {boardDone.index + 1 < boardDone.total ? ` for Scene ${boardDone.index + 2}.` : '. All its scenes are made.'}
+                  </p>
+                  <button type="button" onClick={() => setBoardDone(null)} aria-label="Close this message" className="shrink-0 text-emerald-300 hover:text-white cursor-pointer">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveBoardId(boardDone.boardId);
+                    setBoardDone(null);
+                    setView('board');
+                    window.scrollTo({ top: 0 });
+                  }}
+                  className="self-start min-h-[44px] px-4 rounded-lg bg-emerald-400 hover:bg-emerald-300 text-slate-950 text-sm font-bold cursor-pointer"
+                >
+                  {boardDone.index + 1 < boardDone.total ? `Back to the board for Scene ${boardDone.index + 2}` : 'Back to the board'}
+                </button>
+                <p className="text-xs text-emerald-200/80">The text box is cleared, so Generate here won't make the same scene again.</p>
+              </div>
+            )}
             {/* With a story open, the panel makes the story's next scene */}
             {openStoryLastScene && (
               <div className="flex flex-col gap-2.5">
