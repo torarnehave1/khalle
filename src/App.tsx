@@ -60,6 +60,7 @@ import {
   Compass,
   Users,
   FileText,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { AiDirectorModal } from './components/AiDirectorModal';
@@ -875,6 +876,13 @@ export default function App() {
   /** Extra pictures for the next scene (the wider view, the place, the others around); endHere = finish exactly on it. */
   const [sceneRefs, setSceneRefs] = useState<{ id: string; image: string; label: string; endHere: boolean }[]>([]);
   const [refsDropHover, setRefsDropHover] = useState(false);
+  /** A short note in the reference box after a frame from a scene was added. */
+  const [refNote, setRefNote] = useState<string | null>(null);
+  useEffect(() => {
+    if (!refNote) return;
+    const t = setTimeout(() => setRefNote(null), 8000);
+    return () => clearTimeout(t);
+  }, [refNote]);
   /** Where a Cmd/Ctrl+V picture goes right now (kept in a ref for the window paste listener). */
   const pasteToRefsRef = useRef(false);
   /** "Save this character": the frame it was opened on and the scene it came from. */
@@ -1557,6 +1565,28 @@ export default function App() {
       videoRef.current?.pause();
       const frame = await grabFrame(scene.videoUrl, at);
       setCastModal({ frame, scene });
+    } catch (e: any) {
+      setErrorMessage(e?.message || 'The frame could not be read.');
+    }
+  };
+  /** "Use frame as reference": the frame the player shows now becomes a reference picture for the next scene. */
+  const addFrameAsSceneRef = async (scene: GeneratedVideo) => {
+    if (sceneRefs.length >= 3) {
+      setErrorMessage('A scene can have 3 reference pictures. Remove one in "Reference pictures for this scene" first.');
+      return;
+    }
+    try {
+      const at = videoRef.current && currentVideo?.id === scene.id ? videoRef.current.currentTime : scene.trimStart ?? 0;
+      videoRef.current?.pause();
+      const image = await grabFrame(scene.videoUrl, at);
+      const sceneNo = currentStoryScenes.findIndex((s) => s.id === scene.id) + 1 || scene.sceneNumber || 1;
+      setSceneRefs((list) =>
+        list.length >= 3
+          ? list
+          : [...list, { id: `ref-${Date.now()}`, image, label: list.length ? `Frame from Scene ${sceneNo} at ${at.toFixed(1)} s` : 'The wider view of the scene', endHere: false }]
+      );
+      setRefNote(`Frame from Scene ${sceneNo} at ${at.toFixed(1)} s added as a reference picture. Change its text to say what it shows.`);
+      setTimeout(() => document.querySelector('[data-scene-refs]')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
     } catch (e: any) {
       setErrorMessage(e?.message || 'The frame could not be read.');
     }
@@ -4053,7 +4083,9 @@ export default function App() {
                     {continuesLastScene
                       ? 'Paste (Cmd+V / Ctrl+V) or drop a picture of what Gemini cannot see yet, for example the wider view when the camera zooms out.'
                       : 'Click here and paste (Cmd+V / Ctrl+V), or drop a picture, for example the place or the others around.'}
+                    {' '}Or pause a scene on a frame and press <strong className="text-slate-300">Use frame as reference</strong> under the video.
                   </span>
+                  {refNote && <span role="status" className="text-xs text-sky-300">{refNote}</span>}
                 </div>
                 {sceneRefs.map((r) => (
                   <div key={r.id} className="flex gap-3 items-start border-t border-slate-800 pt-2.5">
@@ -5174,6 +5206,15 @@ export default function App() {
                 >
                   <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
                   <span>{openStoryCast ? 'Update the character' : 'Save this character'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => addFrameAsSceneRef(currentVideo)}
+                  className="px-3 py-1.5 bg-sky-500/10 hover:bg-sky-500/20 text-sky-200 border border-sky-500/40 font-semibold rounded-lg flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
+                  title="Pause on a frame, then use it as a reference picture for the next scene (for example the wider view)"
+                >
+                  <ImageIcon className="w-3.5 h-3.5 text-sky-300" />
+                  <span>Use frame as reference</span>
                 </button>
 
                 {/* Generation Diagnostic & Reference Log Buttons */}
