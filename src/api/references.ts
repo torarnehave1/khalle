@@ -190,14 +190,14 @@ export function sceneReferenceDirective(body: any): string {
   const refs: string[] = Array.isArray(body?.sceneReferenceLabels) ? body.sceneReferenceLabels.filter((x: any) => typeof x === 'string') : [];
   if (!refs.length) return '';
   const list = refs.map((l, i) => `${i + 1}. ${l.trim() || 'The wider view of the scene'}`).join('\n');
-  return `\n\n[SCENE REFERENCE PICTURES]:\nThe attached SCENE REFERENCE image(s) show how the place and the characters around look beyond what the start frame shows:\n${list}\nWhen the camera moves, turns or zooms out, the place, its layout, the light and the characters around must match these pictures. They are not the first frame: the video still starts where it is told to start.`;
+  return `\n\n[SCENE REFERENCE PICTURES]:\nThe attached SCENE REFERENCE image(s) show the place and who is there, beyond what the start frame shows:\n${list}\nUse them only for the place, its layout, the light, and how each character looks. When the camera moves, turns or zooms out, these must match the pictures.\nDo NOT copy the poses, positions or actions in these pictures: what the characters do in this scene comes only from the scene text, even when the pictures show them doing something else (for example sitting while the text says they stand up).\nEach character appears only once: do not duplicate a character from these pictures, and do not give one character's look to another.\nThey are not the first frame: the video still starts where it is told to start.`;
 }
 
 export function castDirective(body: any): string {
   const d = typeof body?.castDescription === 'string' ? body.castDescription.trim() : '';
   if (!d) return '';
   const name = typeof body?.castName === 'string' && body.castName.trim() ? ` (${body.castName.trim()})` : '';
-  return `\n\n[MAIN CHARACTER - APPROVED LOOK]:\nThe main character${name} must look exactly like the attached MAIN CHARACTER image in every frame: ${d}\nKeep the same face, colours, proportions, hair or fur, clothing and accessories as in that image and as in the scene before. Do not change the character's look.`;
+  return `\n\n[MAIN CHARACTER - APPROVED LOOK]:\nThe main character${name} must look exactly like the attached MAIN CHARACTER image in every frame: ${d}\nKeep the same face, colours, proportions, hair or fur, clothing and accessories as in that image and as in the scene before. Do not change the character's look.\nThere is only ONE main character in the scene. Do not draw a second copy of it, and do not give its look (face, beard, fur, ears, clothes) to any other character: the other characters keep their own looks.`;
 }
 
 /** The "Khalle in this scene" switch is off: no Khalle pictures, symbol or identity rule are sent. */
@@ -625,7 +625,7 @@ export async function resolveReferenceImages(body: any): Promise<ResolvedImage[]
     if (ref.category === 'scene_reference') {
       return {
         role: `SCENE REFERENCE: ${ref.label || 'the wider view of the scene'}`,
-        desc: 'How the place and the characters around look when the camera shows more of the scene. Match it when the camera moves or zooms out.',
+        desc: 'The place, the light and how the characters around look. Match it when the camera moves or zooms out. Do not copy the poses or actions in it: the scene text decides what the characters do.',
         isFriend: false,
         isPicture: false,
       };
@@ -633,7 +633,7 @@ export async function resolveReferenceImages(body: any): Promise<ResolvedImage[]
     // The story's approved character card (set by the user with "Save this character").
     if (ref.category === 'main_character') {
       return {
-        role: 'MAIN CHARACTER of this story (approved look): draw exactly this character',
+        role: 'MAIN CHARACTER of this story (approved look): draw exactly this character, once only',
         desc: ref.description || '',
         isFriend: false,
         isPicture: false,
