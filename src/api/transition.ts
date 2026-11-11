@@ -12,14 +12,14 @@ export const TRANSITION_MIN_SECONDS = 3;
 export const TRANSITION_MAX_SECONDS = 10;
 
 export const DEFAULT_TRANSITION_PROMPT =
-  'One smooth, continuous shot with no cuts and no fades. The green plush rabbit moves naturally from its pose ' +
-  'and position in the first frame to its pose and position in the last frame. Keep the same character, style ' +
+  'One smooth, continuous shot with no cuts and no fades. The characters move naturally from their poses ' +
+  'and positions in the first frame to their poses and positions in the last frame. Keep the same characters, style ' +
   'and lighting throughout; the camera glides smoothly between the two framings.';
 
 /** For a new scene placed before another: it starts on a picture and ends on that scene's first frame. */
 export const DEFAULT_BEFORE_PROMPT =
-  'One smooth, continuous shot with no cuts and no fades. The green plush rabbit starts as in the first frame and ' +
-  'moves naturally until the shot ends exactly on the last frame. Keep the same character, style and lighting throughout.';
+  'One smooth, continuous shot with no cuts and no fades. The characters start as in the first frame and ' +
+  'move naturally until the shot ends exactly on the last frame. Keep the same characters, style and lighting throughout.';
 
 const dataUrlParts = (dataUrl: string) => {
   const m = dataUrl.match(/^data:([^;]+);base64,(.+)$/);

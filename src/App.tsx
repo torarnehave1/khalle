@@ -89,6 +89,7 @@ import { useStoryPersistence } from './lib/storyStore';
 import { useBoards } from './lib/boardStore';
 import StoryBoard from './components/StoryBoard';
 import AlbumPicker from './components/AlbumPicker';
+import PromptReview, { type PromptReviewData } from './components/PromptReview';
 import { newBoard } from './api/board';
 import { useTrimmedPlayback } from './lib/trimPlayback';
 import { extensionChainSeconds, MAX_EXTENSION_CHAIN_SECONDS } from './lib/extensionChain';
@@ -865,6 +866,31 @@ export default function App() {
   const [boardRun, setBoardRun] = useState<{ boardId: string; index: number; lastId?: string; before: string[]; started: boolean; done?: boolean } | null>(null);
   /** "From my albums" on the make-a-scene screen: for the start picture or a reference picture. */
   const [makeAlbums, setMakeAlbums] = useState<null | 'start' | 'ref'>(null);
+  // "What Gemini gets": every video request is shown (and can be edited) before it is sent.
+  const [promptReview, setPromptReview] = useState<(PromptReviewData & { resolve: (text: string | null) => void }) | null>(null);
+  const reviewPrompt = (data: PromptReviewData) =>
+    new Promise<string | null>((resolve) => setPromptReview({ ...data, resolve }));
+  const cancelledError = () => Object.assign(new Error('Cancelled'), { cancelled: true });
+  const talkNote = (on: boolean) =>
+    on ? ['Talks without words is on: the main character will also talk (move the mouth and gesture) while doing what the text says. Switch it off if the scene is about another action.'] : [];
+  /** Builds the request's text without sending, shows it, then sends exactly what the user approved. */
+  const sendWithReview = async (url: string, body: any): Promise<Response> => {
+    const pv = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...body, previewOnly: true }),
+    });
+    const data = await pv.json().catch(() => ({}));
+    if (!pv.ok || !data?.preview) throw new Error(data?.error || 'The text for Gemini could not be made.');
+    const title = body.previousInteractionId ? 'continues the scene before' : 'new video';
+    const text = await reviewPrompt({ title, text: data.preview.text, pictures: data.preview.pictures || [], notes: talkNote(body.silentTalk === true) });
+    if (text === null) throw cancelledError();
+    return fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...body, promptOverride: text }),
+    });
+  };
   /** While a scene is being made: getting it ready ('preparing') or waiting for Gemini ('making'), its number, and when it started. */
   const [genPhase, setGenPhase] = useState<'preparing' | 'making'>('preparing');
   const [makingSceneNo, setMakingSceneNo] = useState(1);
@@ -2033,11 +2059,7 @@ export default function App() {
       }
 
       setGenPhase('making');
-      const response = await fetch('/api/animate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+      const response = await sendWithReview('/api/animate', payload);
 
       clearInterval(progressInterval);
 
@@ -2209,6 +2231,7 @@ export default function App() {
       }
     } catch (err: any) {
       clearInterval(progressInterval);
+      if (err?.cancelled) return;
       console.error('Video generation error:', err);
       fetchLatestLog(false);
       if (
@@ -2356,9 +2379,9 @@ export default function App() {
           'The video must end on the pose, position and camera framing shown in scene_end_frame, so the next scene follows without a jump.'
         );
       }
-      const generationPrompt = continuityLines.length
-        ? `${continuityLines.join(' ')}\n\n${continuationPrompt}`
-        : continuationPrompt;
+      // The scene text goes first; the start and end frames are explained in the picture lines.
+      void continuityLines;
+      const generationPrompt = continuationPrompt;
 
       setProgressPercent(15);
       setProgressStep(
@@ -2384,10 +2407,7 @@ export default function App() {
       }, 1800);
 
       setGenPhase('making');
-      const response = await fetch(continueInteraction ? '/api/extend' : '/api/animate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      const response = await sendWithReview(continueInteraction ? '/api/extend' : '/api/animate', {
           ...(continueInteraction
             ? { previousInteractionId: parentVideo.interactionId }
             : { imageBase64: startFrame, imageMimeType: 'image/jpeg' }),
@@ -2435,8 +2455,7 @@ export default function App() {
                 category: item.type as any,
               })),
           ],
-        }),
-      });
+        });
 
       clearInterval(progressInterval);
       const data = await response.json();
@@ -2484,6 +2503,7 @@ export default function App() {
       setShowExtensionDrawer(false);
       if (opts?.refs) setSceneRefs([]);
     } catch (err: any) {
+      if (err?.cancelled) return;
       console.error('Scene extension error:', err);
       fetchLatestLog(false);
       if (err.message?.includes('spending cap') || err.message?.includes('429')) {
@@ -2709,16 +2729,9 @@ export default function App() {
           payload.imageMimeType = imageMimeType;
         }
 
-        response = await fetch('/api/animate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
+        response = await sendWithReview('/api/animate', payload);
       } else {
-        response = await fetch('/api/extend', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+        response = await sendWithReview('/api/extend', {
             previousInteractionId: sceneToCorrect.previousInteractionId,
             prompt: finalCorrectedPrompt,
             aspectRatio: sceneToCorrect.aspectRatio,
@@ -2766,8 +2779,7 @@ export default function App() {
                   category: item.type as any,
                 })),
             ],
-          }),
-        });
+          });
       }
 
       clearInterval(progressInterval);
@@ -2820,6 +2832,7 @@ export default function App() {
       setCurrentVideo(correctedScene);
       setShowCorrectionModal(false);
     } catch (err: any) {
+      if (err?.cancelled) return;
       console.error('Scene correction error:', err);
       if (err.message?.includes('spending cap') || err.message?.includes('429')) {
         setIsSpendingCapHit(true);
@@ -3224,12 +3237,30 @@ export default function App() {
       const talk = silentTalk
         ? ' The main character talks during the whole shot: the mouth moves in a speaking rhythm with expressions and gestures, but there are no audible words.'
         : '';
+      const proposed = [
+        prompt.trim(),
+        'In a single continuous shot, with no scene cuts.',
+        'The first image is the first frame. The video ends exactly on the second image.',
+        talk.trim(),
+      ]
+        .filter(Boolean)
+        .join('\n');
+      const reviewed = await reviewPrompt({
+        title: 'ends on your picture',
+        text: proposed,
+        pictures: [
+          { n: 1, line: 'First frame', previewUrl: firstFrame },
+          { n: 2, line: 'Last frame', previewUrl: lastFrame },
+        ],
+        notes: talkNote(silentTalk),
+      });
+      if (reviewed === null) throw cancelledError();
       setGenPhase('making');
       setProgressPercent(35);
       const result = await generateTransition({
         firstFrame,
         lastFrame,
-        prompt: `${prompt.trim()}${talk} The video ends exactly on the last image.`,
+        prompt: reviewed,
         seconds: secs,
         aspectRatio: (last?.aspectRatio || aspectRatio) === '16:9' ? '16:9' : '9:16',
         resolution,
@@ -3263,6 +3294,7 @@ export default function App() {
       setCompareMode('video');
       setSceneRefs([]);
     } catch (err: any) {
+      if (err?.cancelled) return;
       console.error('End-on-picture error:', err);
       setErrorMessage(`The scene could not be made: ${err?.message || 'unknown error'}`);
     } finally {
@@ -5889,6 +5921,22 @@ export default function App() {
         </div>
       </main>
 
+      {promptReview && (
+        <PromptReview
+          title={promptReview.title}
+          text={promptReview.text}
+          pictures={promptReview.pictures}
+          notes={promptReview.notes}
+          onCancel={() => {
+            promptReview.resolve(null);
+            setPromptReview(null);
+          }}
+          onSend={(text) => {
+            promptReview.resolve(text);
+            setPromptReview(null);
+          }}
+        />
+      )}
       {makeAlbums && (
         <AlbumPicker
           destinations={[

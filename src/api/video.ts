@@ -8,15 +8,8 @@ import { base64ByteLength } from './base64';
 import { getGeminiClient } from './gemini';
 import type { RouteHandler } from './http';
 import { quotaState, recentGenerationLogs, recordGenerationLog, type GenerationLogRecord } from './logs';
-import {
-  formatProductionDirectives,
-  castDirective,
-  sceneReferenceDirective,
-  excludesKhalle,
-  getCharacterDirective,
-  resolveReferenceImages,
-  sanitizePromptToImageReference,
-} from './references';
+import { excludesKhalle, resolveReferenceImages } from './references';
+import { buildShortPrompt } from './shortPrompt';
 
 /** "7s" / 7 → "7s", clamped to 3..max whole seconds. Unreadable → fallback. */
 function pickDuration(value: unknown, max: number, fallback: string): string {
@@ -167,46 +160,21 @@ export async function executeAnimateCore(body: any) {
 
   const ai = getGeminiClient();
 
-  // Build authoritative manifest directory mapping filenames and URLs to image positions
-  let imageManifest = `=== REFERENCE IMAGE DIRECTORY & FILENAME MANIFEST ===
-The following ${resolvedImages.length} reference images are attached in order in the input sequence. When the prompt or directives refer to an image by filename, URL, or position ("first attached image", "second attached image"), use this exact mapping:
-`;
-
-  resolvedImages.forEach((img, idx) => {
-    const num = idx + 1;
-    const name = img.filename || `image_${num}.png`;
-    imageManifest += `\n- Reference Image ${num} [Filename: "${name}"]${img.url ? ` [URL: "${img.url}"]` : ''}:\n  Role: ${img.role || img.label || 'Reference Image'}\n  ${img.description ? `Visual Details: ${img.description}\n` : ''}`;
-  });
+  // The short text (decision 2026-11-11, B). The user saw it in "What Gemini gets" and may have
+  // edited it: then that text is sent word for word.
+  const built = buildShortPrompt(body, resolvedImages, 'video', withoutComposedAtmosphere(prompt));
+  const sanitizedPrompt = withoutComposedAtmosphere(prompt);
+  if (body.previewOnly) return { preview: { text: built.text, pictures: built.pictures } };
+  const lockedPrompt = typeof body.promptOverride === 'string' && body.promptOverride.trim() ? body.promptOverride.trim() : built.text;
+  const imageManifest = built.pictures.map((p) => p.line).join('\n');
+  const fullDirectives = '';
 
   const inputParts: any[] = [];
-  // Interleave descriptive text part before each image part so Gemini Omni Flash identifies each image by name
-  for (let i = 0; i < resolvedImages.length; i++) {
-    const img = resolvedImages[i];
-    inputParts.push({
-      type: 'text',
-      text: `[REFERENCE IMAGE ${i + 1} | FILENAME: "${img.filename}" | ROLE: "${img.role || img.label || 'Reference'}"]:`
-    });
-    inputParts.push({
-      type: 'image',
-      mime_type: img.mimeType,
-      data: img.base64,
-    });
-  }
-
-  let fullDirectives = getCharacterDirective(body, resolvedImages) + castDirective(body) + sceneReferenceDirective(body);
-  fullDirectives += formatProductionDirectives(body, resolvedImages);
-
-  fullDirectives += atmosphereDirective(prompt, season, weather);
-  fullDirectives += silentTalkDirective(body.silentTalk === true);
-  fullDirectives += audioDirective(audioMode, 'video', body.silentTalk === true);
-
-  const sanitizedPrompt = sanitizePromptToImageReference(withoutComposedAtmosphere(prompt), resolvedImages);
-  const lockedPrompt = `${resolvedImages.length ? `${imageManifest}\n\n` : ''}${fullDirectives}\n\n[ANIMATION SCENE ACTION DIRECTIVE]:\n${sanitizedPrompt}`;
-
-  inputParts.push({
-    type: 'text',
-    text: lockedPrompt,
+  resolvedImages.forEach((img, i) => {
+    inputParts.push({ type: 'text', text: `Picture ${i + 1}:` });
+    inputParts.push({ type: 'image', mime_type: img.mimeType, data: img.base64 });
   });
+  inputParts.push({ type: 'text', text: lockedPrompt });
 
   // Populate diagnostic record
   logRecord.resolvedReferenceImages = resolvedImages.map((img) => ({
@@ -344,7 +312,7 @@ export const handleAnimate: RouteHandler = async (req, res) => {
         errMsg.includes('rephrasing the prompt');
 
       // Seamless Auto-Healing: If blocked by overzealous safety filter, silently rewrite into camera-safe visual prompt and retry!
-      if (isInputBlocked && req.body?.prompt && !req.body?._isRetry) {
+      if (isInputBlocked && req.body?.prompt && !req.body?._isRetry && !req.body?.promptOverride) {
         console.log('[Animate] Input blocked by safety filter. Auto-healing prompt into camera-safe visual language...');
         const safePrompt = await generateSafePromptRephrase(req.body.prompt);
         if (safePrompt) {
@@ -501,43 +469,21 @@ export async function executeExtendCore(body: any) {
 
   const resolvedImages = await resolveReferenceImages(body);
 
-  let imageManifest = `=== REFERENCE IMAGE DIRECTORY & FILENAME MANIFEST ===
-The following ${resolvedImages.length} reference images are attached in order in the input sequence. When the prompt or directives refer to an image by filename, URL, or position ("first attached image", "second attached image"), use this exact mapping:
-`;
-
-  resolvedImages.forEach((img, idx) => {
-    const num = idx + 1;
-    const name = img.filename || `image_${num}.png`;
-    imageManifest += `\n- Reference Image ${num} [Filename: "${name}"]${img.url ? ` [URL: "${img.url}"]` : ''}:\n  Role: ${img.role || img.label || 'Reference Image'}\n  ${img.description ? `Visual Details: ${img.description}\n` : ''}`;
-  });
+  // The short text (decision 2026-11-11, B); see executeAnimateCore.
+  const sanitizedContinuationPrompt = withoutComposedAtmosphere(prompt);
+  const built = buildShortPrompt(body, resolvedImages, 'continuation', sanitizedContinuationPrompt);
+  if (body.previewOnly) return { preview: { text: built.text, pictures: built.pictures } };
+  const lockedContinuationPrompt =
+    typeof body.promptOverride === 'string' && body.promptOverride.trim() ? body.promptOverride.trim() : built.text;
+  const imageManifest = built.pictures.map((p) => p.line).join('\n');
+  const fullDirectives = '';
 
   const inputParts: any[] = [];
-  for (let i = 0; i < resolvedImages.length; i++) {
-    const img = resolvedImages[i];
-    inputParts.push({
-      type: 'text',
-      text: `[REFERENCE IMAGE ${i + 1} | FILENAME: "${img.filename}" | ROLE: "${img.role || img.label || 'Reference'}"]:`
-    });
-    inputParts.push({
-      type: 'image',
-      mime_type: img.mimeType,
-      data: img.base64,
-    });
-  }
-
-  let fullDirectives = getCharacterDirective(body, resolvedImages) + castDirective(body) + sceneReferenceDirective(body);
-  fullDirectives += formatProductionDirectives(body, resolvedImages);
-
-  fullDirectives += atmosphereDirective(continuationPrompt, season, weather);
-  fullDirectives += silentTalkDirective(body.silentTalk === true);
-  fullDirectives += audioDirective(audioMode, 'continuation', body.silentTalk === true);
-
-  const sanitizedContinuationPrompt = sanitizePromptToImageReference(withoutComposedAtmosphere(continuationPrompt), resolvedImages);
-  const lockedContinuationPrompt = `${resolvedImages.length ? `${imageManifest}\n\n` : ''}${fullDirectives}\n\n[SCENE CONTINUATION DIRECTIVE]:\n${sanitizedContinuationPrompt}`;
-  inputParts.push({
-    type: 'text',
-    text: lockedContinuationPrompt,
+  resolvedImages.forEach((img, i) => {
+    inputParts.push({ type: 'text', text: `Picture ${i + 1}:` });
+    inputParts.push({ type: 'image', mime_type: img.mimeType, data: img.base64 });
   });
+  inputParts.push({ type: 'text', text: lockedContinuationPrompt });
 
   // Populate diagnostic record
   logRecord.resolvedReferenceImages = resolvedImages.map((img) => ({
@@ -678,7 +624,7 @@ export const handleExtend: RouteHandler = async (req, res) => {
         errMsg.includes('could not be processed') ||
         errMsg.includes('rephrasing the prompt');
 
-      if (isInputBlocked && req.body?.prompt && !req.body?._isRetry) {
+      if (isInputBlocked && req.body?.prompt && !req.body?._isRetry && !req.body?.promptOverride) {
         console.log('[Extend] Input blocked by safety filter. Auto-healing continuation prompt...');
         const safePrompt = await generateSafePromptRephrase(req.body.prompt);
         if (safePrompt) {
@@ -765,6 +711,8 @@ const NON_INHERITED_FIELDS = [
   'previousInteractionId',
   'parentSceneNumber',
   '_isRetry',
+  'previewOnly',
+  'promptOverride',
   'imageBase64',
   'imageMimeType',
   'imagePath',
